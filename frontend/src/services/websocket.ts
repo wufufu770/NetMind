@@ -1,0 +1,1 @@
+export function connectEvents(onMessage:(event:any)=>void){ const url=(import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/events'); const ws=new WebSocket(url); ws.onmessage=(e)=>onMessage(JSON.parse(e.data)); return ws; }
