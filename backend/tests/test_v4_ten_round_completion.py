@@ -5,7 +5,7 @@ client = TestClient(app)
 
 def test_langgraph_compat_interrupt_resume():
     graph = client.get('/api/langgraph/graph').json()
-    assert graph['engine'] == 'LangGraphCompatEngine'
+    assert graph['engine'] in ('LangGraphCompatEngine', 'langgraph.StateGraph')
     assert any(e['condition'] != 'always' for e in graph['edges'])
     run = client.post('/api/langgraph/run?require_approval=true', json={'intent_text':'保障答辩视频会议延迟低于50ms','dry_run':False}).json()
     assert run['interrupts']

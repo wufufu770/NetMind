@@ -8,3 +8,5 @@ class NetworkDriver(ABC):
     @abstractmethod
     def execute(self, command: str) -> CommandResult: ...
     def snapshot(self) -> dict: return {'driver': self.name, 'real': self.real}
+    def collect(self) -> dict:
+        return {'supported': False, 'reason': f'{self.name} driver does not implement read-only collection'}

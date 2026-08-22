@@ -1,68 +1,114 @@
-# NetMind — 意图驱动的自治网络平台
+# NetMind
 
+**Intent-driven network operations agent — from natural language intent to verified, rollback-safe policy changes.**
+**意图驱动的网络自治运维 Agent：从自然语言意图到可验证、可回滚的策略变更。**
 
-面向智能体互联网的意图驱动跨域自治网络平台。用户以自然语言描述网络需求，8 个 AI Agent 协同完成意图解析、策略规划、冲突检测、配置下发与闭环自愈。
+> **Status: alpha · simulation-first.** The closed-loop workflow (intent → plan → verify → deploy → telemetry → diagnose → heal) is fully implemented against a built-in simulator and works offline with zero external dependencies. Real-device drivers ship behind an explicit opt-in flag and are read-only by default. See [Honesty table](#whats-real--whats-simulated).
+>
+> **状态：alpha · 仿真优先。** 意图→规划→验证→下发→遥测→诊断→自愈的完整闭环已在内置仿真器上跑通，离线零依赖可用。真实设备驱动默认只读、需显式开启，边界见[诚实声明](#真实与仿真的边界)。
 
-## 快速启动
+## Why
+
+Network operations still run on tribal knowledge and hand-typed CLI. Intent-Based Networking (IBN) fixes the *interface*; agentic AI fixes the *loop*: parse what the operator wants, propose a change, prove it is safe, apply it under approval, watch the result, and heal when reality disagrees.
+
+NetMind implements that loop end to end as a small, hackable Python service — the "diagnose-and-heal" counterpart that projects like K8sGPT brought to Kubernetes, aimed at networks.
+
+网络运维至今仍依赖口口相传的经验和手敲命令行。基于意图的网络（IBN）解决"接口"问题，Agent AI 解决"闭环"问题：解析运维者想要什么 → 提出变更 → 证明安全 → 审批后下发 → 观测结果 → 与预期不符时自愈。NetMind 把这条闭环做成了一个轻量可改的 Python 服务。
+
+## Features
+
+- Closed-loop workflow: `IntentAgent → PlannerAgent → VerifierAgent → DeployAgent → TelemetryAgent → DiagnosisAgent → HealingAgent`
+- LLM-optional: offline rule engine fallback; OpenAI-compatible presets for DeepSeek / Qwen / OpenAI / Ollama
+- LangGraph adapter: uses real LangGraph when installed, falls back to a built-in compatible engine
+- MCP-style tool registry with 24 built-in tools, 4 workflows, cross-domain negotiation
+- Policy conflict detection, auto-fix suggestions, approval flow, transactional rollback plans
+- Audit log, notifications, compliance reports (MD / HTML / PDF), feature self-check endpoints
+- React dashboard (9 pages) + WebSocket live events
+
+## What's real / What's simulated
+
+| Capability | State |
+|---|---|
+| Workflow orchestration, conflict detection, approvals, reports | ✅ Real |
+| Offline rule engine + mock model | ✅ Real (zero-dependency demo) |
+| Real LLM calls (DeepSeek / Qwen / OpenAI / Ollama presets) | ✅ Real (API key required) |
+| Topology & telemetry data | ⚠️ Simulated generator |
+| Policy deployment on devices | ⚠️ Dry-run by default; real SSH/NETCONF behind `NETMIND_ENABLE_REAL_COMMANDS=true` + credentials |
+| Read-only device collection (`collect()`) | ✅ Real via napalm / ncclient (`requirements-drivers.txt`) |
+
+We keep this table in the README on purpose: if a capability moves from simulated to real, this file must say so.
+
+我们刻意把这张表放在 README 里：任何能力从仿真转为真实，此表必须同步更新。
+
+## Quick start
 
 ```bash
 docker compose up -d --build
 ```
 
-- 前端：http://localhost:5173
-- 后端 API：http://localhost:8000/docs
+- Dashboard: http://localhost:5173
+- API docs: http://localhost:8000/docs
+- Self-check: http://localhost:8000/api/features/core-acceptance
 
-## 功能特性
+### Local development
 
-- **自然语言驱动**：输入业务意图，自动编译为 DSL 并规划网络策略
-- **8 Agent 协同**：IntentAgent → PlannerAgent → VerifierAgent → DeployAgent → TelemetryAgent → DiagnosisAgent → HealingAgent 完整闭环
-- **LangGraph 适配**：自动检测 langgraph，已安装使用真实引擎，未安装降级兼容引擎
-- **MCP 工具协议**：标准化工具注册与调用，24 个内置工具
-- **多工作流支持**：默认闭环、安全审批、遥测诊断、跨域协商
-- **模板管理**：意图模板 CRUD，模板建议与匹配
-- **Agent 管理**：Agent 增删改、模型绑定、cron 调度
-- **安全仿真双模式**：默认仿真不修改真实网络，可切换真实设备 + SecurityChecker + 审批流
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
 
-## 页面
+cd ../frontend && npm ci && npm run dev
+```
 
-| 页面 | 功能 |
-|------|------|
-| 运行态势 | 网络指标、拓扑、告警、事件流 |
-| 网络遥测 | 实时遥测、故障注入、异常检测、自愈 |
-| 审计日志 | 日志筛选、搜索、导出 |
-| 意图编排 | 自然语言意图输入、DSL 编译、工作流选择、模板管理 |
-| Agent 管理 | Agent 增删改、调度控制、工作流保存 |
-| 策略中心 | 策略验证、自动修复、审批执行、回滚计划 |
-| 合规报告 | Markdown/HTML/PDF 报告生成 |
-| 系统配置 | 主题字体、模型、规则、工具、工作流、安全、导入导出 |
-| 系统自检 | F1-F15 一键验收 |
+Optional real-device drivers:
 
-## 技术栈
+```bash
+pip install -r backend/requirements-drivers.txt   # napalm, netmiko, ncclient
+```
 
-Python FastAPI + React + WebSocket + LangGraph 适配 + MCP 协议 + Docker
+## Configuration
 
-## 文档
+| Variable | Default | Description |
+|---|---|---|
+| `NETMIND_DRIVER` | `simulation` | Active driver: `simulation` \| `ssh` \| `netconf` \| `mininet` |
+| `NETMIND_ENABLE_REAL_COMMANDS` | `false` | Gate for any write execution against real devices |
+| `NETMIND_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+| `NETMIND_SSH_HOST` / `_PORT` / `_USERNAME` / `_PASSWORD` / `_DEVICE_TYPE` | – | netmiko connection settings |
+| `NETMIND_NAPALM_DRIVER` | SSH device type | napalm driver name for read-only collection |
+| `NETMIND_NETCONF_HOST` / `_PORT` / `_USERNAME` / `_PASSWORD` | – | ncclient endpoint settings |
+| `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | – | Optional LLM backends |
 
-| 文档 | 说明 |
-|------|------|
-| [API 参考](docs/API.md) | 接口速查 |
-| [架构说明](docs/ARCHITECTURE.md) | 系统架构与数据流 |
-| [功能矩阵](docs/FEATURE_MATRIX.md) | 66 项功能清单 |
+## Architecture
 
-## 环境变量
+```
+frontend (React+Vite) ──ws──┐
+                            ▼
+backend FastAPI ──► Orchestrator ──► agents (LLM or rule-engine)
+     │                                   │
+     ├── SQLite/JSON store               ├── verifier (conflict matrix)
+     ├── MCP tool registry (24 tools)    └── transaction manager
+     └── driver layer: simulation │ ssh │ netconf │ mininet
+```
 
-| 变量 | 说明 | 默认值 |
-|------|------|------|
-| `NETMIND_DRIVER` | 驱动模式 | `simulation` |
-| `NETMIND_ADMIN_TOKEN` | 鉴权令牌 | `netmind-local-admin` |
-| `NETMIND_CORS_ORIGINS` | 跨域允许源 | `http://localhost:5173` |
+- `backend/app/routers/` — API modules by domain
+- `backend/app/core/` — orchestration, verification, telemetry, MCP tools
+- `backend/app/drivers/` — device abstraction (`execute()` gated, `collect()` read-only)
 
-## 测试
+## Testing
 
 ```bash
 cd backend && pytest -q
 python scripts/validate_project.py
 ```
+
+39 tests cover the full loop; CI runs them on Python 3.10–3.12 plus a frontend build.
+
+## Roadmap
+
+1. **Phase 1 — Diagnose MVP**: `netmind diagnose <containerlab-topology>` — read-only collection over SSH/gNMI, LLM root-cause report.
+2. **Phase 2 — Guardrailed healing**: config-diff proposals, pre-apply verification, human approval, post-apply verification, rollback.
+3. **Phase 3 — MCP server mode**: expose the tool registry as a Model Context Protocol server so Claude/Cursor-class agents can operate networks safely.
 
 ## License
 

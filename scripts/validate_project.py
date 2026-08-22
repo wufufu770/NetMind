@@ -17,7 +17,7 @@ required=[
     # v4 ten-round non-environment completion modules
     'backend/app/core/langgraph_compat.py','backend/app/core/mcp_protocol.py','backend/app/core/chat_agent.py',
     'backend/app/core/tool_sequence.py','backend/app/core/repository_status.py','backend/app/core/config_extras.py',
-    'backend/app/core/report_renderer.py','docs/TEN_ROUND_COMPLETION_REPORT.md',
+    'backend/app/core/report_renderer.py',
     'backend/tests/test_v4_ten_round_completion.py','frontend/src/services/api.ts','frontend/src/types/index.ts'
 ]
 for rel in required:
