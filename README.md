@@ -73,6 +73,32 @@ pip install ./backend        # or: pipx install ./backend
 netmind --help
 ```
 
+## Demo
+
+No hardware needed — validate a containerlab topology straight from its YAML:
+
+```console
+$ netmind diagnose examples/clab-broken.yml
+# NetMind Diagnose Report: netmind-broken
+
+- 模式：`structure-only`
+- 规模：3 nodes / 2 links
+- 结论：**3 error(s), 1 warning(s)**
+
+## Findings
+
+### [ERROR] Link endpoint references unknown node "ghost" `dangling:ghost`
+Endpoint ghost:eth0 has no matching topology node.
+
+### [ERROR] Address conflict: 10.0.0.1 assigned to both r1 and r2 `ip-conflict:10.0.0.1`
+Duplicate addressing causes unreachable hosts and ARP churn.
+
+### [WARN] Topology splits into 2 isolated groups `isolation`
+Groups: lonely | r1, r2.
+```
+
+Clean topologies report `clean`; add `--live` for interface state via napalm, `--llm` for root-cause analysis.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -88,15 +114,7 @@ netmind --help
 
 ## Architecture
 
-```
-frontend (React+Vite) ──ws──┐
-                            ▼
-backend FastAPI ──► Orchestrator ──► agents (LLM or rule-engine)
-     │                                   │
-     ├── SQLite/JSON store               ├── verifier (conflict matrix)
-     ├── MCP tool registry (24 tools)    └── transaction manager
-     └── driver layer: simulation │ ssh │ netconf
-```
+![architecture](docs/architecture.svg)
 
 - `backend/app/routers/` — API modules by domain
 - `backend/app/core/` — orchestration, verification, telemetry, MCP tools
@@ -133,3 +151,9 @@ Checks: dangling link endpoints, duplicate/parallel links, IP conflicts, invalid
 ## License
 
 MIT
+
+## Contributing & Security
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, ground rules, PR checklist
+- [SECURITY.md](SECURITY.md) — threat model and vulnerability reporting
+- [CHANGELOG.md](CHANGELOG.md)
