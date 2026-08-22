@@ -1,26 +1,35 @@
 from __future__ import annotations
-import json
+import json, os
 import typer, httpx
 from rich import print
 from rich.table import Table
 from rich.console import Console
 
 app=typer.Typer(help='NetMind CLI')
-API='http://localhost:8000'
+API=os.getenv('NETMIND_API_URL','http://localhost:8000')
 console=Console()
 
+def _headers():
+    token=os.getenv('NETMIND_ADMIN_TOKEN','').strip()
+    return {'Authorization':f'Bearer {token}'} if token else {}
+
 def _get(path: str, **params):
-    r=httpx.get(f'{API}{path}', params=params, timeout=20)
+    r=httpx.get(f'{API}{path}', params=params, timeout=20, headers=_headers())
     r.raise_for_status()
     return r.json()
 
 def _post(path: str, data=None):
-    r=httpx.post(f'{API}{path}', json=data or {}, timeout=60)
+    r=httpx.post(f'{API}{path}', json=data or {}, timeout=60, headers=_headers())
     r.raise_for_status()
     try:
         return r.json()
     except Exception:
         return r.text
+
+@app.command()
+def version():
+    from . import __version__
+    print(__version__)
 
 @app.command()
 def status():
@@ -88,5 +97,8 @@ def audit():
 def tool_call(tool_name: str, command: str=''):
     print(_post('/api/tools/call', {'tool_name':tool_name, 'arguments':{'command':command}}))
 
-if __name__ == '__main__':
+def run():
     app()
+
+if __name__ == '__main__':
+    run()

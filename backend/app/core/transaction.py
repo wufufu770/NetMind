@@ -25,14 +25,16 @@ class TransactionManager:
                 if not sec.success:
                     executed.append(sec)
                     for rcmd in reversed(rollback):
-                        executed.append(self.driver.execute(rcmd))
+                        rb=SECURITY.check(rcmd, allow_dangerous=True)
+                        executed.append(rb if not rb.success else self.driver.execute(rcmd))
                     STORE.log('deploy', f'deploy failed and rolled back: {sec.output}', 'error', execution_id)
                     return DeployResult(execution_id=execution_id, executed=executed, rolled_back=True, success=False, mode=mode)
                 res=self.driver.execute(cmd)
                 executed.append(res)
                 if not res.success:
                     for rcmd in reversed(rollback):
-                        executed.append(self.driver.execute(rcmd))
+                        rb=SECURITY.check(rcmd, allow_dangerous=True)
+                        executed.append(rb if not rb.success else self.driver.execute(rcmd))
                     STORE.log('deploy', 'driver execution failed, rollback attempted', 'error', execution_id)
                     return DeployResult(execution_id=execution_id, executed=executed, rolled_back=True, success=False, mode=mode)
         STORE.log('deploy', f'deployed {len(executed)} commands through {self.driver.name} (mode={mode})', 'info', execution_id)

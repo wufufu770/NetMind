@@ -13,7 +13,8 @@ router = APIRouter()
 
 @router.get('/')
 def root():
-    return {'name':'NetMind','version':'5.0-final-simulation','docs':'/docs','status':'/api/system/status'}
+    from .. import __version__
+    return {'name':'NetMind','version':__version__,'docs':'/docs','status':'/api/system/status'}
 
 @router.get('/api/system/status', response_model=SystemStatus)
 def system_status():

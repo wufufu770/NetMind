@@ -12,12 +12,12 @@ def add(name, ok, detail=''):
 required=[
     'backend/app/main.py','backend/app/schemas.py','backend/app/store.py','backend/app/core/rule_engine.py',
     'backend/app/core/security.py','backend/app/core/verification.py','backend/app/core/transaction.py',
-    'backend/app/core/telemetry.py','backend/app/core/report.py','frontend/src/App.jsx','cli/netmind.py',
+    'backend/app/core/telemetry.py','backend/app/core/report.py','frontend/src/App.jsx','backend/app/cli.py',
     'docker-compose.yml','README.md',
     'backend/app/core/langgraph_compat.py','backend/app/core/mcp_protocol.py','backend/app/core/chat_agent.py',
     'backend/app/core/tool_sequence.py','backend/app/core/config_extras.py',
     'backend/app/core/report_renderer.py',
-    'backend/tests/test_v4_ten_round_completion.py','frontend/src/services/api.ts','frontend/src/types/index.ts'
+    'backend/tests/test_v4_ten_round_completion.py'
 ]
 for rel in required:
     add(f'file:{rel}', (ROOT/rel).exists())

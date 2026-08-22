@@ -66,12 +66,20 @@ Optional real-device drivers:
 pip install -r backend/requirements-drivers.txt   # napalm, netmiko, ncclient
 ```
 
+Install as a package (provides the `netmind` CLI):
+
+```bash
+pip install ./backend        # or: pipx install ./backend
+netmind --help
+```
+
 ## Configuration
 
 | Variable | Default | Description |
 |---|---|---|
 | `NETMIND_DRIVER` | `simulation` | Active driver: `simulation` \| `ssh` \| `netconf` |
 | `NETMIND_ENABLE_REAL_COMMANDS` | `false` | Gate for any write execution against real devices |
+| `NETMIND_ADMIN_TOKEN` | – | When set, all non-GET requests require `Authorization: Bearer <token>` |
 | `NETMIND_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 | `NETMIND_SSH_HOST` / `_PORT` / `_USERNAME` / `_PASSWORD` / `_DEVICE_TYPE` | – | netmiko connection settings |
 | `NETMIND_NAPALM_DRIVER` | SSH device type | napalm driver name for read-only collection |
