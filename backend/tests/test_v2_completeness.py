@@ -3,18 +3,9 @@ from app.main import app
 
 client=TestClient(app)
 
-def test_feature_matrix_is_structured():
-    r=client.get('/api/feature-matrix')
-    assert r.status_code==200
-    data=r.json()
-    assert data['total']==66
-    assert len(data['items'])==66
-
-def test_audit_benchmark_yaml_and_node_detail():
+def test_audit_yaml_and_node_detail():
     client.post('/api/intent/submit', json={'text':'今晚8点保障答辩视频会议，延迟低于50ms，访客限速5Mbps'})
     assert client.get('/api/audit/summary').status_code==200
-    bench=client.post('/api/benchmark/run')
-    assert bench.status_code==200 and bench.json()['total'] >= 4
     y=client.get('/api/config/export.yaml')
     assert y.status_code==200 and 'models:' in y.text
     node=client.get('/api/topology/nodes/s1')

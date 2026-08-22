@@ -81,17 +81,8 @@ def scenario(name: str='defense'):
     print(_post(f'/api/experiment/scenario/{name}', {}))
 
 @app.command()
-def benchmark():
-    print(_post('/api/benchmark/run', {}))
-
-@app.command()
 def audit():
     print(_get('/api/audit/summary'))
-
-@app.command('feature-matrix')
-def feature_matrix():
-    data=_get('/api/feature-matrix')
-    print({'total':data['total'], 'production_ready':data['production_ready'], 'simulation_safe':data['simulation_safe'], 'external_dependency':data['external_dependency']})
 
 @app.command('tool-call')
 def tool_call(tool_name: str, command: str=''):

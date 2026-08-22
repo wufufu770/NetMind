@@ -6,7 +6,7 @@ client=TestClient(app)
 def test_openapi_contains_core_routes():
     data=client.get('/openapi.json').json()
     paths=data['paths']
-    for path in ['/api/intent/submit','/api/feature-matrix','/api/audit/summary','/api/store/snapshot','/api/report/{execution_id}.pdf']:
+    for path in ['/api/intent/submit','/api/audit/summary','/api/store/snapshot','/api/report/{execution_id}.pdf']:
         assert path in paths
 
 def test_full_competition_closed_loop_smoke():
@@ -17,4 +17,3 @@ def test_full_competition_closed_loop_smoke():
     assert ex['verification']['passed'] is True
     assert client.get(f'/api/executions/{eid}/replay').status_code==200
     assert client.get(f'/api/report/{eid}.md').status_code==200
-    assert client.get('/api/system/completeness').json()['entrypoints']==66

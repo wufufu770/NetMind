@@ -22,7 +22,7 @@ NetMind implements that loop end to end as a small, hackable Python service — 
 - LangGraph adapter: uses real LangGraph when installed, falls back to a built-in compatible engine
 - MCP-style tool registry with 24 built-in tools, 4 workflows, cross-domain negotiation
 - Policy conflict detection, auto-fix suggestions, approval flow, transactional rollback plans
-- Audit log, notifications, compliance reports (MD / HTML / PDF), feature self-check endpoints
+- Audit log, notifications, compliance reports (MD / HTML / PDF)
 - React dashboard (9 pages) + WebSocket live events
 
 ## What's real / What's simulated
@@ -48,7 +48,6 @@ docker compose up -d --build
 
 - Dashboard: http://localhost:5173
 - API docs: http://localhost:8000/docs
-- Self-check: http://localhost:8000/api/features/core-acceptance
 
 ### Local development
 

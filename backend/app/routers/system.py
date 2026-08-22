@@ -33,21 +33,6 @@ def readiness():
     if not STORE.tools: missing.append('tools')
     return {'ready': not missing, 'missing': missing, 'rules': len(STORE.rules), 'agents': len(STORE.agents), 'tools': len(STORE.tools), 'store_path': str(store_module.DATA_PATH)}
 
-@router.get('/api/system/completeness')
-def system_completeness():
-    from ..core.feature_matrix import feature_matrix as _fm
-    m=_fm()
-    return {
-        'feature_total': m['total'],
-        'entrypoints': m['implemented_entrypoints'],
-        'production_ready_without_external_dependency': m['production_ready'],
-        'simulation_safe': m['simulation_safe'],
-        'external_dependency': m['external_dependency'],
-        'tests_expected_minimum': 20,
-        'status': 'competition-complete-with-safe-simulation-drivers',
-        'external_blockers': ['LLM API key', 'Mininet/OVS/TC runtime', 'SSH/NETCONF credentials', 'production PostgreSQL/Redis deployment']
-    }
-
 @router.post('/api/system/model-health-check')
 def model_health_check():
     results={}
@@ -60,50 +45,6 @@ def model_health_check():
 def ai_recovery_review():
     recent=list(STORE.executions.values())[-10:]
     return {'reviewed': len(recent), 'differences': [], 'message':'AI 恢复后复核完成：当前仿真构建中离线规则结果与模型结果无冲突。'}
-
-@router.get('/api/feature-matrix')
-def feature_matrix():
-    from ..core.feature_matrix import feature_matrix as _fm
-    return _fm()
-
-@router.get('/api/v4/completion-report')
-def v4_completion_report():
-    from ..core.feature_matrix import feature_matrix as _fm
-    fm=_fm()
-    non_env_incomplete=[f for f in fm['items'] if f['status']!='implemented' and not f.get('external_dependency')]
-    return {
-        'non_environment_completion_percent': 100 if not non_env_incomplete else round((fm['total']-len(non_env_incomplete))/fm['total']*100,2),
-        'non_environment_incomplete': non_env_incomplete,
-        'external_environment_remaining': [f for f in fm['items'] if f.get('external_dependency')],
-        'tests_target': 'all backend tests + validate_project',
-        'status': 'all feasible non-environment functions implemented in safe simulation package' if not non_env_incomplete else 'needs_more_work'
-    }
-
-@router.get('/api/features/core-acceptance')
-def core_acceptance():
-    from ..core.verification import VERIFIER
-    checks = [
-        {'group':'意图闭环', 'name':'意图解析', 'passed': bool(STORE.agents.get('IntentAgent'))},
-        {'group':'意图闭环', 'name':'策略规划', 'passed': bool(STORE.agents.get('PlannerAgent')) and bool(STORE.rules)},
-        {'group':'策略安全', 'name':'冲突检测', 'passed': bool(VERIFIER)},
-        {'group':'策略安全', 'name':'安全检查', 'passed': True},
-        {'group':'网络遥测', 'name':'遥测采集', 'passed': bool(TELEMETRY.sample())},
-        {'group':'诊断处置', 'name':'诊断与自愈', 'passed': True},
-        {'group':'流程编排', 'name':'工作流目录', 'passed': bool(STORE.workflows)},
-        {'group':'流程编排', 'name':'Agent 配置', 'passed': len(STORE.agents) >= 8},
-    ]
-    implemented = len([c for c in checks if c['passed']])
-    return {'total': len(checks), 'implemented': implemented, 'all_passed': implemented == len(checks), 'checks': checks}
-
-@router.get('/api/repository/status')
-def repository_status():
-    from ..core.repository_status import REPOSITORY_STATUS
-    return REPOSITORY_STATUS.status()
-
-@router.post('/api/repository/sqlite-probe')
-def repository_sqlite_probe():
-    from ..core.repository_status import REPOSITORY_STATUS
-    return REPOSITORY_STATUS.sqlite_probe()
 
 @router.get('/api/notifications')
 def notifications(limit: int=20):

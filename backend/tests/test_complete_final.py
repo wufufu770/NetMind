@@ -7,7 +7,7 @@ from app.core.model_adapter import MODEL_ADAPTER
 client=TestClient(app)
 
 def test_all_major_entrypoints_exist():
-    for path in ['/','/api/system/status','/api/dashboard','/api/topology','/api/agents','/api/config/export','/api/feature-matrix','/api/drivers']:
+    for path in ['/','/api/system/status','/api/dashboard','/api/topology','/api/agents','/api/config/export','/api/drivers']:
         r=client.get(path)
         assert r.status_code == 200, path
 

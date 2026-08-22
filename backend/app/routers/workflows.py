@@ -1,6 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter
-from ..schemas import BenchmarkResult, WorkflowRunRequest, ToolCallRequest
+from ..schemas import WorkflowRunRequest, ToolCallRequest
 from ..core.workflow import ORCHESTRATOR
 from ..store import STORE
 
@@ -9,11 +9,6 @@ router = APIRouter()
 @router.post('/api/workflows/run')
 def workflow_run(req: WorkflowRunRequest):
     return ORCHESTRATOR.run_closed_loop(req.intent_text, dry_run=req.dry_run, workflow_id=req.workflow_id)
-
-@router.post('/api/benchmark/run', response_model=BenchmarkResult)
-def benchmark_run():
-    from ..core.benchmark import run_benchmark
-    return run_benchmark()
 
 @router.get('/api/workflows/catalog')
 def workflow_catalog():

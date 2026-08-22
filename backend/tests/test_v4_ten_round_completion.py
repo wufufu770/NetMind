@@ -24,16 +24,12 @@ def test_mcp_protocol_and_tool_call():
     assert server['ok'] is True
 
 
-def test_chat_tool_sequence_and_repository_status():
+def test_chat_tool_sequence():
     ex = client.post('/api/intent/submit', json={'text':'今晚保障答辩视频会议，访客限速5Mbps'}).json()
     chat = client.post('/api/chat/ask', json={'question':'当前网络状态怎么样？','model_id':'mock'}).json()
     assert chat['read_only'] is True
     seq = client.get(f"/api/executions/{ex['execution_id']}/tool-sequence").json()
     assert seq['items']
-    repo = client.get('/api/repository/status').json()
-    assert 'active_store' in repo
-    probe = client.post('/api/repository/sqlite-probe').json()
-    assert probe['ok'] is True
 
 
 def test_config_security_fonts_credentials_and_rich_report():
@@ -50,9 +46,3 @@ def test_config_security_fonts_credentials_and_rich_report():
     assert html.status_code == 200 and 'text/html' in html.headers['content-type']
     pdf = client.get(f"/api/report/{ex['execution_id']}/rich.pdf")
     assert pdf.status_code == 200 and pdf.content.startswith(b'%PDF')
-
-
-def test_v4_completion_report_non_environment_is_100():
-    report = client.get('/api/v4/completion-report').json()
-    assert report['non_environment_completion_percent'] == 100
-    assert report['non_environment_incomplete'] == []
