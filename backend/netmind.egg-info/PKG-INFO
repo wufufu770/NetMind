@@ -1,0 +1,29 @@
+Metadata-Version: 2.4
+Name: netmind
+Version: 0.1.0
+Summary: Intent-driven network operations agent: natural-language intent to verified, rollback-safe policy changes.
+Author: wufufu770
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: System :: Networking
+Classifier: License :: OSI Approved :: MIT License
+Requires-Python: >=3.10
+Requires-Dist: fastapi==0.115.6
+Requires-Dist: uvicorn[standard]==0.32.1
+Requires-Dist: pydantic==2.10.3
+Requires-Dist: python-dotenv==1.0.1
+Requires-Dist: typer==0.15.1
+Requires-Dist: click<8.2,>=8.1
+Requires-Dist: rich==13.9.4
+Requires-Dist: httpx==0.28.1
+Requires-Dist: PyYAML==6.0.2
+Provides-Extra: drivers
+Requires-Dist: napalm<6,>=4.1; extra == "drivers"
+Requires-Dist: netmiko<5,>=4.3; extra == "drivers"
+Requires-Dist: ncclient<1,>=0.6.13; extra == "drivers"
+Requires-Dist: paramiko<4,>=3.4; extra == "drivers"
+Provides-Extra: langgraph
+Requires-Dist: langgraph>=0.2.0; extra == "langgraph"
+Provides-Extra: dev
+Requires-Dist: pytest==8.3.4; extra == "dev"
+Requires-Dist: pytest-asyncio==0.24.0; extra == "dev"

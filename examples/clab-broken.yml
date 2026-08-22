@@ -1,0 +1,17 @@
+name: netmind-broken
+topology:
+  nodes:
+    r1:
+      kind: linux
+      image: frrouting/frr:v8.5.2
+      mgmt_ipv4: 10.0.0.1
+    r2:
+      kind: linux
+      image: frrouting/frr:v8.5.2
+      mgmt_ipv4: 10.0.0.1
+    lonely:
+      kind: linux
+      image: alpine:3.19
+  links:
+    - endpoints: ["r1:eth1", "ghost:eth0"]
+    - endpoints: ["r1:eth2", "r2:eth2"]

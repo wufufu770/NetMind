@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json, os
-from pathlib import Path
 import typer, httpx
 from rich import print
 from rich.table import Table
@@ -100,32 +99,6 @@ def tool_call(tool_name: str, command: str=''):
 
 def run():
     app()
-
-@app.command('diagnose')
-def diagnose_cmd(
-    topology: str = typer.Argument(..., help='containerlab topology YAML path'),
-    json_output: bool = typer.Option(False, '--json', help='machine-readable output'),
-    output: str = typer.Option(None, '--output', '-o', help='write report to file instead of stdout'),
-    live: bool = typer.Option(False, '--live', help='collect interface state via napalm (requires netmind[drivers])'),
-    host: list[str] = typer.Option([], '--host', help='node-to-address mapping, repeatable: --host r1=10.0.0.5'),
-    llm: bool = typer.Option(False, '--llm', help='enrich findings with LLM root-cause analysis (needs DEEPSEEK_API_KEY or NETMIND_DIAGNOSE_MODEL)'),
-):
-    """Diagnose a containerlab topology: structure checks first, optional live collection, optional LLM analysis."""
-    from .diagnose.engine import diagnose as _run
-    from .diagnose import reporter
-    hm={}
-    for h in host:
-        name, _, ip=h.partition('=')
-        if name.strip() and ip.strip(): hm[name.strip()]=ip.strip()
-    report=_run(topology, live=live, host_map=hm,
-                ssh_user=os.getenv('NETMIND_SSH_USERNAME',''), ssh_password=os.getenv('NETMIND_SSH_PASSWORD',''), llm=llm)
-    text=reporter.render_json(report) if json_output else reporter.render_md(report)
-    if output:
-        Path(output).write_text(text, encoding='utf-8')
-        print(f'wrote {output}')
-    else:
-        import sys
-        sys.stdout.write(text + '\n')
 
 if __name__ == '__main__':
     run()

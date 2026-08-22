@@ -1,0 +1,35 @@
+name: netmind-demo
+topology:
+  kinds:
+    linux:
+      kind: linux
+    bridge:
+      kind: bridge
+  nodes:
+    r1:
+      kind: linux
+      image: frrouting/frr:v8.5.2
+      mgmt_ipv4: 172.20.20.2/24
+    r2:
+      kind: linux
+      image: frrouting/frr:v8.5.2
+      mgmt_ipv4: 172.20.20.3/24
+    sw1:
+      kind: bridge
+    client1:
+      kind: linux
+      image: alpine:3.19
+      mgmt_ipv4: 172.20.20.10/24
+      addresses:
+        - 192.168.1.10/24
+    client2:
+      kind: linux
+      image: alpine:3.19
+      mgmt_ipv4: 172.20.20.11/24
+      addresses:
+        - 192.168.1.11/24
+  links:
+    - endpoints: ["r1:eth1", "sw1:eth1"]
+    - endpoints: ["r2:eth1", "sw1:eth2"]
+    - endpoints: ["client1:eth0", "sw1:eth3"]
+    - endpoints: ["client2:eth0", "sw1:eth4"]

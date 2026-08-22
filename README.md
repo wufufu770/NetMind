@@ -111,11 +111,24 @@ python scripts/validate_project.py
 
 39 tests cover the full loop; CI runs them on Python 3.10–3.12 plus a frontend build.
 
+## Diagnose (Phase 1)
+
+Validate a containerlab topology without deploying it:
+
+```bash
+netmind diagnose examples/clab-demo.yml              # structure checks → markdown report
+netmind diagnose examples/clab-broken.yml --json     # machine-readable findings
+netmind diagnose topo.yml --live --host r1=172.20.20.2   # + napalm interface state
+netmind diagnose topo.yml --llm                      # + LLM root-cause analysis (cached)
+```
+
+Checks: dangling link endpoints, duplicate/parallel links, IP conflicts, invalid management addresses, topology isolation. `--llm` sends only the structured findings (never configs) to DeepSeek/OpenAI/Ollama (`NETMIND_DIAGNOSE_MODEL=ollama:qwen2.5`), responses cached in `~/.cache/netmind/`.
+
 ## Roadmap
 
-1. **Phase 1 — Diagnose MVP**: `netmind diagnose <containerlab-topology>` — read-only collection over SSH/gNMI, LLM root-cause report.
+1. ~~**Phase 1 — Diagnose MVP**: `netmind diagnose <containerlab-topology>` — read-only collection over SSH/gNMI, LLM root-cause report.~~ ✅ shipped (structure checks + live collection + cached LLM enrichment)
 2. **Phase 2 — Guardrailed healing**: config-diff proposals, pre-apply verification, human approval, post-apply verification, rollback.
-3. **Phase 3 — MCP server mode**: expose the tool registry as a Model Context Protocol server so Claude/Cursor-class agents can operate networks safely.
+3. **Phase 3 — Real MCP server**: expose tools over Model Context Protocol (JSON-RPC stdio) so Claude/Cursor-class agents can operate networks safely.
 
 ## License
 
