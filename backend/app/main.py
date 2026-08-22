@@ -16,10 +16,12 @@ async def persist_after_mutations(request, call_next):
     response = await call_next(request)
     if request.method in {'POST','PUT','PATCH','DELETE'} and response.status_code < 500:
         try:
-            STORE.save()
+            STORE.mark_dirty()
         except Exception as exc:
             STORE.log('store', f'persist failed: {exc}', 'error')
     return response
+
+STORE.start_autosave()
 
 for module in [system, intents, templates_manage, policies, deploy, approvals,
                topology, telemetry, agents, logs_audit, config, workflows,

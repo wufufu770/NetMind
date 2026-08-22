@@ -9,8 +9,6 @@ from ..core.model_adapter import MODEL_ADAPTER
 
 router = APIRouter()
 
-AGENT_SCHEDULES={}
-
 def config_export():
     return {'models':STORE.models,'agents':STORE.agents,'rules':STORE.rules,'tools':STORE.tools,'workflows':STORE.workflows,'theme':STORE.theme,'mcp_servers':STORE.mcp_servers}
 
@@ -69,13 +67,14 @@ def recommended_agent_prompts():
 @router.get('/api/config/agents/{agent_name}/schedule')
 def get_agent_schedule(agent_name: str):
     if agent_name not in STORE.agents: raise HTTPException(404,'agent not found')
-    return AGENT_SCHEDULES.get(agent_name, {'agent':agent_name, 'enabled':True, 'active_schedule':'always'})
+    return STORE.agent_schedules.get(agent_name, {'agent':agent_name, 'enabled':True, 'active_schedule':'always'})
 
 @router.put('/api/config/agents/{agent_name}/schedule')
 def put_agent_schedule(agent_name: str, payload: dict):
     if agent_name not in STORE.agents: raise HTTPException(404,'agent not found')
     row={'agent':agent_name, 'enabled': bool(payload.get('enabled', True)), 'active_schedule': payload.get('active_schedule','always')}
-    AGENT_SCHEDULES[agent_name]=row
+    STORE.agent_schedules[agent_name]=row
+    STORE.mark_dirty()
     return row
 
 @router.delete('/api/config/agents/{agent_name}')

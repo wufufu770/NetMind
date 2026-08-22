@@ -1,12 +1,13 @@
 from __future__ import annotations
 from typing import Dict, List, Any
 from pathlib import Path
-import json, os
+import atexit, json, os, threading, time
 from .schemas import *
 
 MAX_LOGS=2000
 MAX_EXECUTIONS=500
 MAX_TELEMETRY=2000
+AUTOSAVE_INTERVAL=2.0
 
 DATA_PATH = Path(os.getenv('NETMIND_DATA_FILE', Path(__file__).resolve().parents[2] / 'data' / 'netmind_store.json'))
 
@@ -31,8 +32,14 @@ class PersistentStore:
         self.mcp_servers: Dict[str, Dict[str, Any]] = {}
         self.credentials: Dict[str, CredentialConfig] = {}
         self.templates: Dict[str, str] = {}
-        self.seed()
-        self.load()
+        self.agent_schedules: Dict[str, Dict[str, Any]] = {}
+        self._lock=threading.RLock()
+        self._dirty=False
+        self._last_save=0.0
+        if DATA_PATH.exists():
+            self.load()
+        else:
+            self.seed()
 
     def _dump_dict(self, rows: Dict[str, BaseModel]) -> Dict[str, Any]:
         return {k: v.model_dump(mode='json') for k, v in rows.items()}
@@ -52,13 +59,43 @@ class PersistentStore:
             'mcp_servers': self.mcp_servers,
             'credentials': self._dump_dict(self.credentials),
             'templates': self.templates,
+            'agent_schedules': self.agent_schedules,
         }
 
     def save(self) -> None:
+        with self._lock:
+            payload=self.to_json()
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp = DATA_PATH.with_suffix('.tmp')
-        tmp.write_text(json.dumps(self.to_json(), ensure_ascii=False, indent=2), encoding='utf-8')
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
         tmp.replace(DATA_PATH)
+        self._last_save=time.time()
+        self._dirty=False
+
+    def mark_dirty(self) -> None:
+        with self._lock:
+            self._dirty=True
+        if time.time()-self._last_save >= AUTOSAVE_INTERVAL:
+            try:
+                self.save()
+            except Exception:
+                pass
+
+    def flush(self) -> None:
+        with self._lock:
+            pending=self._dirty
+        if pending:
+            self.save()
+
+    def start_autosave(self) -> None:
+        def _loop():
+            while True:
+                time.sleep(AUTOSAVE_INTERVAL)
+                try:
+                    self.flush()
+                except Exception:
+                    pass
+        threading.Thread(target=_loop, daemon=True, name='netmind-autosave').start()
 
     def load(self) -> None:
         if not DATA_PATH.exists():
@@ -79,6 +116,7 @@ class PersistentStore:
             self.mcp_servers.update(raw.get('mcp_servers', {}))
             self.credentials.update({k: CredentialConfig(**v) for k, v in raw.get('credentials', {}).items()})
             self.templates.update(raw.get('templates', {}))
+            self.agent_schedules.update(raw.get('agent_schedules', {}))
             if len(self.executions) > 200:
                 self.executions = dict(list(self.executions.items())[-200:])
         except Exception as exc:
@@ -180,3 +218,4 @@ class PersistentStore:
             self.rules[name]=Rule(name=name, description=desc, priority=100-i, match_business=biz, action_template={'source':'rule','rule_id':name})
 
 STORE = PersistentStore()
+atexit.register(STORE.flush)
