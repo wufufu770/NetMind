@@ -4,6 +4,10 @@ from pathlib import Path
 import json, os
 from .schemas import *
 
+MAX_LOGS=2000
+MAX_EXECUTIONS=500
+MAX_TELEMETRY=2000
+
 DATA_PATH = Path(os.getenv('NETMIND_DATA_FILE', Path(__file__).resolve().parents[2] / 'data' / 'netmind_store.json'))
 
 class PersistentStore:
@@ -88,9 +92,20 @@ class PersistentStore:
     def log(self, source: str, message: str, level: str='info', execution_id: str|None=None, data: dict|None=None):
         entry=LogEntry(source=source, message=message, level=level, execution_id=execution_id, data=data or {})
         self.logs.append(entry)
-        if len(self.logs) > 2000:
-            self.logs = self.logs[-2000:]
+        if len(self.logs) > MAX_LOGS:
+            self.logs = self.logs[-MAX_LOGS:]
         return entry
+
+    def put_execution(self, execution: Execution) -> None:
+        self.executions[execution.execution_id]=execution
+        while len(self.executions) > MAX_EXECUTIONS:
+            oldest=next(iter(self.executions))
+            self.executions.pop(oldest, None)
+
+    def record_telemetry(self, snap: TelemetrySnapshot) -> None:
+        self.telemetry.append(snap)
+        if len(self.telemetry) > MAX_TELEMETRY:
+            self.telemetry[:] = self.telemetry[-MAX_TELEMETRY:]
 
     def seed(self):
         self.templates = {

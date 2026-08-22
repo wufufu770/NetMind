@@ -104,6 +104,7 @@ class TelemetrySnapshot(BaseModel):
     src: str = 'teacher_terminal'
     dst: str = 'meeting_server'
     alert: bool = False
+    source: Literal['simulated','driver','synthetic'] = 'simulated'
 
 class Diagnosis(BaseModel):
     type: Literal['congestion','link_down','anomaly_traffic','config_error','normal'] = 'normal'

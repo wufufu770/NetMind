@@ -13,7 +13,7 @@ class TelemetryService:
         elif self.fault == 'link_down': snap=TelemetrySnapshot(latency_ms=999, packet_loss=1.0, throughput_mbps=0, alert=True)
         elif self.fault == 'guest_spike': snap=TelemetrySnapshot(latency_ms=55, packet_loss=0.008, throughput_mbps=118, alert=True)
         else: snap=TelemetrySnapshot(latency_ms=23+(self.tick%4), packet_loss=0.0002, throughput_mbps=82, alert=False)
-        STORE.telemetry.append(snap)
+        STORE.record_telemetry(snap)
         return snap
     def diagnose(self, snapshots=None) -> Diagnosis:
         snapshots=snapshots or STORE.telemetry[-3:]
@@ -27,9 +27,8 @@ class TelemetryService:
         before=STORE.telemetry[-1] if STORE.telemetry else self.sample()
         action={'congestion':'启用备用路径并重新下发流表','link_down':'回滚故障链路策略并切换备用链路','anomaly_traffic':'应用访客限速与隔离策略','config_error':'回滚最近配置','normal':'无需动作'}[diagnosis.type]
         self.fault='normal'
-        after=TelemetrySnapshot(latency_ms=23, packet_loss=0.0002, throughput_mbps=82, alert=False)
-        STORE.telemetry.append(after)
-        report=HealingReport(action_taken=action,before_snapshot=before,after_snapshot=after,summary=f'{action}，指标恢复至 {after.latency_ms}ms')
+        after=self.sample()
+        report=HealingReport(action_taken=action,before_snapshot=before,after_snapshot=after,summary=f'{action}；处置后重新观测（{after.source}）：{after.latency_ms}ms')
         STORE.log('healing', report.summary, 'info')
         return report
 TELEMETRY=TelemetryService()

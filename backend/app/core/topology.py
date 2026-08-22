@@ -1,4 +1,5 @@
 from collections import defaultdict, deque
+import heapq
 
 class TopologyGraph:
     def __init__(self):
@@ -33,5 +34,25 @@ class TopologyGraph:
             for m in g[n]:
                 if m not in seen: seen.add(m); q.append(m)
         return False
+
+    def path_latency(self, src, dst):
+        dist={src:0.0}
+        pq=[(0.0,src)]
+        adj=defaultdict(list)
+        for l in self.links:
+            if l.get('status') == 'down': continue
+            w=float(l.get('latency_ms',0))
+            adj[l['source']].append((l['target'],w))
+            adj[l['target']].append((l['source'],w))
+        while pq:
+            d,n=heapq.heappop(pq)
+            if n==dst: return round(d,2)
+            if d>dist.get(n,float('inf')): continue
+            for m,w in adj[n]:
+                nd=d+w
+                if nd<dist.get(m,float('inf')):
+                    dist[m]=nd
+                    heapq.heappush(pq,(nd,m))
+        return None
 
 TOPOLOGY=TopologyGraph()
