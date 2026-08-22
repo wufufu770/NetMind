@@ -47,9 +47,9 @@ class PersistentStore:
     def to_json(self) -> Dict[str, Any]:
         return {
             'executions': {k: v.model_dump(mode='json') for k, v in list(self.executions.items())[-200:]},
-            'logs': [x.model_dump(mode='json') for x in self.logs[-2000:]],
+            'logs': [x.model_dump(mode='json') for x in self.logs[-MAX_LOGS:]],
             'approvals': self._dump_dict(self.approvals),
-            'telemetry': [x.model_dump(mode='json') for x in self.telemetry[-2000:]],
+            'telemetry': [x.model_dump(mode='json') for x in self.telemetry[-MAX_TELEMETRY:]],
             'rules': self._dump_dict(self.rules),
             'models': self._dump_dict(self.models),
             'agents': self._dump_dict(self.agents),
@@ -57,7 +57,7 @@ class PersistentStore:
             'workflows': self._dump_dict(self.workflows),
             'theme': self.theme.model_dump(mode='json'),
             'mcp_servers': self.mcp_servers,
-            'credentials': self._dump_dict(self.credentials),
+            'credentials': {k: {**v.model_dump(mode='json'), 'secret_ref': '***' if v.secret_ref else ''} for k, v in self.credentials.items()},
             'templates': self.templates,
             'agent_schedules': self.agent_schedules,
         }
@@ -114,7 +114,7 @@ class PersistentStore:
             if raw.get('theme'):
                 self.theme = ThemeConfig(**raw['theme'])
             self.mcp_servers.update(raw.get('mcp_servers', {}))
-            self.credentials.update({k: CredentialConfig(**v) for k, v in raw.get('credentials', {}).items()})
+            self.credentials.update({k: CredentialConfig(**{**v, 'secret_ref': '' if v.get('secret_ref') == '***' else v.get('secret_ref','')}) for k, v in raw.get('credentials', {}).items()})
             self.templates.update(raw.get('templates', {}))
             self.agent_schedules.update(raw.get('agent_schedules', {}))
             if len(self.executions) > 200:

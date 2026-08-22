@@ -17,7 +17,7 @@ NetMind is a **local-first network operations tool**. Understand what it can tou
 
 - The HTTP API has no rate limiting or per-endpoint RBAC. Do not expose it to untrusted networks.
 - Rollback paths bypass the "dangerous command" gate by design (they must be able to undo changes); deny-keywords still apply.
-- Credentials are provided via environment variables; they are not persisted in the store file.
+- Credentials live in the store as **masked references**: `secret_ref` values are redacted (`***`) in the persisted JSON file and in every read endpoint. Point `secret_ref` at your vault path; provide real secrets via environment variables at runtime.
 
 ## Reporting a vulnerability
 

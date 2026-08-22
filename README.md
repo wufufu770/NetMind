@@ -83,7 +83,7 @@ $ netmind diagnose examples/clab-broken.yml
 
 - 模式：`structure-only`
 - 规模：3 nodes / 2 links
-- 结论：**3 error(s), 1 warning(s)**
+- 结论：**2 error(s), 1 warning(s)**
 
 ## Findings
 
