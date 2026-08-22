@@ -85,7 +85,7 @@ class LangGraphCompatEngine:
                 )
                 ex.status = Status.approval
             graph_state['nodes'].append({'name': node.name, 'role': node.role, 'status': state, 'interrupt': node.interrupt})
-        STORE.executions[ex.execution_id] = ex
+        STORE.put_execution(ex)
         STORE.log('workflow', 'langgraph-compatible workflow executed', 'info', ex.execution_id, graph_state)
         return {'execution': ex.model_dump(mode='json'), 'graph_state': graph_state, 'interrupts': [vars(i) for i in self.interrupts.values() if i.execution_id == ex.execution_id]}
 
@@ -99,10 +99,21 @@ class LangGraphCompatEngine:
         rec.resolved = True
         rec.decision = decision
         ex = STORE.executions.get(rec.execution_id)
+        deployed = None
         if ex:
-            ex.status = Status.running if decision == 'approved' else Status.failed
             ex.steps.append(AgentStep(agent='HumanApproval', status=Status.success if decision == 'approved' else Status.failed, output={'decision': decision}, duration_ms=1))
-            STORE.log('workflow', f'human interrupt resumed: {decision}', 'info', ex.execution_id)
+            if decision == 'approved' and ex.policy_set is not None and not ex.deploy:
+                from .transaction import TRANSACTION
+                import time as _time
+                t=_time.time()
+                dep=TRANSACTION.deploy(ex.execution_id, ex.policy_set)
+                ex.deploy=dep
+                ex.steps.append(AgentStep(agent='DeployAgent', status=Status.success if dep.success else Status.failed, output=dep.model_dump(), tools=[{'name':'transaction_manager'}], duration_ms=int((_time.time()-t)*1000)))
+                ex.status=Status.success if dep.success else Status.failed
+                STORE.log('workflow', f"approval resumed; deploy mode={dep.mode} success={dep.success}", 'info' if dep.success else 'error', ex.execution_id)
+            else:
+                ex.status=Status.running if decision == 'approved' else Status.failed
+                STORE.log('workflow', f'human interrupt resumed: {decision}', 'info', ex.execution_id)
         return {'ok': True, 'interrupt': vars(rec), 'execution': ex.model_dump(mode='json') if ex else None}
 
 LANGGRAPH_COMPAT = LangGraphCompatEngine()

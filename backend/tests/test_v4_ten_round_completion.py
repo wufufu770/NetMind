@@ -16,7 +16,7 @@ def test_langgraph_compat_interrupt_resume():
 
 def test_mcp_protocol_and_tool_call():
     listing = client.get('/api/mcp/list_tools').json()
-    assert listing['protocol'] == 'mcp-compatible-local'
+    assert listing['protocol'] == 'netmind-tool-gateway/1.0'
     assert listing['tools']
     called = client.post('/api/mcp/call_tool', json={'tool_name':'topology_tool','arguments':{},'dry_run':True}).json()
     assert called['result']['ok'] is True

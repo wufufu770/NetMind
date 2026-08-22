@@ -95,6 +95,7 @@ class DeployResult(BaseModel):
     executed: List[CommandResult] = Field(default_factory=list)
     rolled_back: bool = False
     success: bool = True
+    mode: Literal['simulated','dry-run','real'] = 'simulated'
 
 class TelemetrySnapshot(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)

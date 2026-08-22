@@ -136,8 +136,8 @@ def reset_runtime():
 
 @router.get('/api/config/security')
 def get_security_config():
-    from ..core.config_extras import SECURITY_CONFIG
-    return SECURITY_CONFIG
+    from ..core.config_extras import get_security_config as _get
+    return _get()
 
 @router.put('/api/config/security')
 def put_security_config(payload: dict):

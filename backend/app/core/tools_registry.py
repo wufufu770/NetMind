@@ -1,10 +1,11 @@
 from __future__ import annotations
 from ..store import STORE
-from ..schemas import ToolCallRequest, IntentDSL
+from ..schemas import ToolCallRequest, IntentDSL, Policy, PolicySet
 from .security import SECURITY
 from .topology import TOPOLOGY
 from .telemetry import TELEMETRY
 from .rule_engine import RULE_ENGINE
+from .verification import VERIFIER
 
 class ToolRegistry:
     """Built-in tool registry used by Agent workflows.
@@ -23,7 +24,7 @@ class ToolRegistry:
             if name == 'topology_tool':
                 return {'ok': True, 'result': TOPOLOGY.snapshot()}
             if name == 'telemetry_tool':
-                return {'ok': True, 'result': TELEMETRY.sample().model_dump(mode='json')}
+                return {'ok': True, 'result': TELEMETRY.sample(record=False).model_dump(mode='json')}
             if name == 'security_check':
                 cmd=args.get('command','')
                 return {'ok': True, 'result': SECURITY.check(cmd).model_dump(mode='json')}
@@ -33,28 +34,32 @@ class ToolRegistry:
                 return {'ok': True, 'intent': intent.model_dump(mode='json'), 'matches': RULE_ENGINE.match(intent)}
             if name == 'free_latency_probe':
                 src=args.get('src','teacher_terminal'); dst=args.get('dst','meeting_server')
-                snap=TELEMETRY.sample()
-                return {'ok': True, 'result': {'src':src,'dst':dst,'latency_ms':snap.latency_ms,'packet_loss':snap.packet_loss,'builtin':True}}
+                snap=TELEMETRY.sample(record=False)
+                pl=TOPOLOGY.path_latency(src,dst)
+                return {'ok': True, 'result': {'src':src,'dst':dst,'latency_ms':snap.latency_ms,'packet_loss':snap.packet_loss,'path_latency_ms':pl,'builtin':True}}
             if name == 'free_bandwidth_estimator':
                 traffic=args.get('traffic_type','video')
                 base={'video':20,'voip':5,'bulk':50,'data':10}.get(traffic,12)
                 return {'ok': True, 'result': {'traffic_type':traffic,'recommended_mbps':base,'confidence':0.86}}
             if name == 'free_path_finder':
                 src=args.get('src','teacher_terminal'); dst=args.get('dst','meeting_server')
-                topo=TOPOLOGY.snapshot(); reachable=TOPOLOGY.reachable(src,dst)
-                path=['teacher_terminal','s1','meeting_server'] if reachable else []
-                if dst == 'lab_server': path=['teacher_terminal','s1','lab_server'] if reachable else []
-                return {'ok': True, 'result': {'src':src,'dst':dst,'reachable':reachable,'path':path,'nodes':len(topo['nodes'])}}
+                path=TOPOLOGY.path(src,dst) or []
+                return {'ok': True, 'result': {'src':src,'dst':dst,'reachable':bool(path),'path':path,'nodes':len(TOPOLOGY.snapshot()['nodes'])}}
             if name == 'free_sla_estimator':
+                src=args.get('src','teacher_terminal'); dst=args.get('dst','meeting_server')
                 target=float(args.get('latency_ms',50) or 50)
-                snap=TELEMETRY.sample()
-                feasible=snap.latency_ms <= target
-                return {'ok': True, 'result': {'target_latency_ms':target,'current_latency_ms':snap.latency_ms,'feasible':feasible,'confidence':0.92 if feasible else 0.61}}
+                pl=TOPOLOGY.path_latency(src,dst)
+                if pl is None or pl<=0 or target<=0:
+                    feasible=False; confidence=0.0
+                else:
+                    feasible=pl<=target
+                    confidence=round(max(0.0,min(1.0,0.5+(target-pl)/(2*target))),2)
+                return {'ok': True, 'result': {'target_latency_ms':target,'path_latency_ms':pl,'feasible':feasible,'confidence':confidence}}
             if name == 'free_acl_conflict_scan':
                 policies=args.get('policies',[])
-                names=[p.get('name','') for p in policies if isinstance(p,dict)]
-                overlap=any('guest' in n for n in names) and any('meeting' in n or 'video' in n for n in names)
-                return {'ok': True, 'result': {'conflicts':[{'code':'guest_meeting_overlap','auto_fixable':True}] if overlap else [], 'scanned':len(policies)}}
+                parsed=[Policy(**{k:v for k,v in p.items() if k in ('type','name','action','priority','params')}) for p in policies if isinstance(p,dict)]
+                issues=VERIFIER._semantic_conflicts(PolicySet(intent_id='scan',policies=parsed))
+                return {'ok': True, 'result': {'conflicts':[{'code':i.code,'auto_fixable':i.auto_fixable} for i in issues], 'scanned':len(parsed)}}
             if name == 'free_policy_diff':
                 before=args.get('before',{}); after=args.get('after',{})
                 return {'ok': True, 'result': {'changed_keys':sorted(set(before.keys()) ^ set(after.keys())), 'before_count':len(before), 'after_count':len(after)}}
@@ -72,7 +77,7 @@ class ToolRegistry:
                 rollback=[c.replace(' add ',' del ') if ' add ' in c else c for c in commands]
                 return {'ok': True, 'result': {'rollback_commands':rollback,'atomic':True}}
             if name == 'free_anomaly_classifier':
-                latency=float(args.get('latency_ms',TELEMETRY.sample().latency_ms))
+                latency=float(args.get('latency_ms',TELEMETRY.sample(record=False).latency_ms))
                 kind='congestion' if latency>50 else 'normal'
                 return {'ok': True, 'result': {'type':kind,'confidence':0.88}}
             if name == 'free_healing_advisor':

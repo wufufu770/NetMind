@@ -1447,9 +1447,11 @@ function FeatureAcceptance({ setPage, setToast }) {
   const runAcceptance = async () => {
     setLoading(true);
     try {
-      const data = await request('/api/features/core-acceptance');
-      setAcceptance(data);
-      toastMessage(setToast, data.all_passed ? 'success' : 'warn', data.all_passed ? '系统自检通过' : '系统自检发现异常');
+      const data = await request('/api/readiness');
+      const total = 3;
+      const implemented = total - (data.missing ? data.missing.length : 0);
+      setAcceptance({ all_passed: !!data.ready, implemented, total });
+      toastMessage(setToast, data.ready ? 'success' : 'warn', data.ready ? '运行时就绪：规则 / Agent / 工具齐备' : `缺少: ${(data.missing || []).join(', ')}`);
     } catch (err) {
       toastMessage(setToast, 'error', `自检失败：${err.message}`);
     } finally {

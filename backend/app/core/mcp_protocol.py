@@ -21,7 +21,7 @@ class MCPProtocol:
                 'inputSchema': t.parameters_schema or {'type':'object','properties':{}},
                 'enabled': t.enabled,
             })
-        return {'protocol': 'mcp-compatible-local', 'tools': tools, 'servers': STORE.mcp_servers}
+        return {'protocol': 'netmind-tool-gateway/1.0', 'tools': tools, 'servers': STORE.mcp_servers}
 
     def call_tool(self, name: str, arguments: Dict[str, Any]|None=None, dry_run: bool=True) -> Dict[str, Any]:
         if name not in STORE.tools:
@@ -29,7 +29,7 @@ class MCPProtocol:
         if not STORE.tools[name].enabled:
             return {'ok': False, 'error': 'tool disabled', 'tool': name}
         result = TOOLS.call(ToolCallRequest(tool_name=name, arguments=arguments or {}, dry_run=dry_run))
-        return {'protocol': 'mcp-compatible-local', 'tool': name, 'result': result}
+        return {'protocol': 'netmind-tool-gateway/1.0', 'tool': name, 'result': result}
 
     def test_server(self, name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         STORE.mcp_servers[name] = payload

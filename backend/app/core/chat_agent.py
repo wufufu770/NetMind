@@ -9,7 +9,7 @@ class ConversationAgent:
     """Read-only network assistant with grounded runtime context."""
     def answer(self, question: str) -> Dict[str, Any]:
         q=question.lower()
-        latest = STORE.telemetry[-1] if STORE.telemetry else TELEMETRY.sample()
+        latest = STORE.telemetry[-1] if STORE.telemetry else TELEMETRY.sample(record=False)
         context = {
             'executions': len(STORE.executions),
             'latest_latency_ms': latest.latency_ms,

@@ -7,13 +7,14 @@ class TelemetryService:
     def inject(self, fault: str):
         self.fault=fault; STORE.log('experiment', f'fault injected: {fault}', 'warn')
         return {'fault': fault, 'ok': True}
-    def sample(self) -> TelemetrySnapshot:
+    def sample(self, record: bool=True) -> TelemetrySnapshot:
         self.tick += 1
         if self.fault == 'congestion': snap=TelemetrySnapshot(latency_ms=68, packet_loss=0.018, throughput_mbps=32, alert=True)
         elif self.fault == 'link_down': snap=TelemetrySnapshot(latency_ms=999, packet_loss=1.0, throughput_mbps=0, alert=True)
         elif self.fault == 'guest_spike': snap=TelemetrySnapshot(latency_ms=55, packet_loss=0.008, throughput_mbps=118, alert=True)
         else: snap=TelemetrySnapshot(latency_ms=23+(self.tick%4), packet_loss=0.0002, throughput_mbps=82, alert=False)
-        STORE.record_telemetry(snap)
+        if record:
+            STORE.record_telemetry(snap)
         return snap
     def diagnose(self, snapshots=None) -> Diagnosis:
         snapshots=snapshots or STORE.telemetry[-3:]

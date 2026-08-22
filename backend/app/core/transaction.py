@@ -3,14 +3,12 @@ import os
 from ..schemas import PolicySet, DeployResult
 from .security import SECURITY
 from ..drivers.simulation import SimulationDriver
-from ..drivers.mininet_driver import MininetDriver
 from ..drivers.ssh_driver import SSHDriver
 from ..drivers.netconf_driver import NETCONFDriver
 from ..store import STORE
 
 def build_driver():
     name=os.getenv('NETMIND_DRIVER','simulation').lower()
-    if name == 'mininet': return MininetDriver()
     if name == 'ssh': return SSHDriver()
     if name == 'netconf': return NETCONFDriver()
     return SimulationDriver()
@@ -18,6 +16,7 @@ def build_driver():
 class TransactionManager:
     def __init__(self): self.driver=build_driver()
     def deploy(self, execution_id: str, policy_set: PolicySet) -> DeployResult:
+        mode=self.driver.mode()
         executed=[]; rollback=[]
         for policy in policy_set.policies:
             rollback.extend(policy.rollback_commands)
@@ -28,16 +27,16 @@ class TransactionManager:
                     for rcmd in reversed(rollback):
                         executed.append(self.driver.execute(rcmd))
                     STORE.log('deploy', f'deploy failed and rolled back: {sec.output}', 'error', execution_id)
-                    return DeployResult(execution_id=execution_id, executed=executed, rolled_back=True, success=False)
+                    return DeployResult(execution_id=execution_id, executed=executed, rolled_back=True, success=False, mode=mode)
                 res=self.driver.execute(cmd)
                 executed.append(res)
                 if not res.success:
                     for rcmd in reversed(rollback):
                         executed.append(self.driver.execute(rcmd))
                     STORE.log('deploy', 'driver execution failed, rollback attempted', 'error', execution_id)
-                    return DeployResult(execution_id=execution_id, executed=executed, rolled_back=True, success=False)
-        STORE.log('deploy', f'deployed {len(executed)} commands through {self.driver.name}', 'info', execution_id)
-        return DeployResult(execution_id=execution_id, executed=executed, rolled_back=False, success=True)
+                    return DeployResult(execution_id=execution_id, executed=executed, rolled_back=True, success=False, mode=mode)
+        STORE.log('deploy', f'deployed {len(executed)} commands through {self.driver.name} (mode={mode})', 'info', execution_id)
+        return DeployResult(execution_id=execution_id, executed=executed, rolled_back=False, success=True, mode=mode)
     def rollback_plan(self, policy_set: PolicySet) -> list[str]:
         out=[]
         for p in policy_set.policies:
