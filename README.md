@@ -70,7 +70,7 @@ pip install -r backend/requirements-drivers.txt   # napalm, netmiko, ncclient
 
 | Variable | Default | Description |
 |---|---|---|
-| `NETMIND_DRIVER` | `simulation` | Active driver: `simulation` \| `ssh` \| `netconf` \| `mininet` |
+| `NETMIND_DRIVER` | `simulation` | Active driver: `simulation` \| `ssh` \| `netconf` |
 | `NETMIND_ENABLE_REAL_COMMANDS` | `false` | Gate for any write execution against real devices |
 | `NETMIND_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 | `NETMIND_SSH_HOST` / `_PORT` / `_USERNAME` / `_PASSWORD` / `_DEVICE_TYPE` | – | netmiko connection settings |
@@ -87,7 +87,7 @@ backend FastAPI ──► Orchestrator ──► agents (LLM or rule-engine)
      │                                   │
      ├── SQLite/JSON store               ├── verifier (conflict matrix)
      ├── MCP tool registry (24 tools)    └── transaction manager
-     └── driver layer: simulation │ ssh │ netconf │ mininet
+     └── driver layer: simulation │ ssh │ netconf
 ```
 
 - `backend/app/routers/` — API modules by domain

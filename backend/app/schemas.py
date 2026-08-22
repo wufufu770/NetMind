@@ -214,7 +214,7 @@ class SystemStatus(BaseModel):
 class CredentialConfig(BaseModel):
     id: str = Field(default_factory=lambda: f'cred-{uuid4().hex[:8]}')
     name: str
-    driver: Literal['ssh','netconf','mininet'] = 'ssh'
+    driver: Literal['ssh','netconf'] = 'ssh'
     host: str = ''
     port: int = 22
     username: str = ''

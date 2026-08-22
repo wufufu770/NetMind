@@ -32,10 +32,9 @@ GET/POST /api/config/tools
 GET/POST /api/config/workflows
 GET/POST /api/config/credentials
 
-## V2 completeness
-GET /api/feature-matrix
+## Runtime
+GET /api/readiness
 GET /api/audit/summary
-POST /api/benchmark/run
 POST /api/tools/call
 POST /api/workflows/run
 GET /api/topology/nodes/{node_id}

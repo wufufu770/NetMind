@@ -13,7 +13,7 @@ TelemetryAgent → DiagnosisAgent → HealingAgent
         ↓
 RuleEngine / SecurityChecker / TransactionManager / DriverRegistry
         ↓
-SimulationDriver 默认安全执行；Mininet/SSH/NETCONF 可替换
+SimulationDriver 默认安全执行；SSH(NETCONF) 驱动默认干跑，需 NETMIND_ENABLE_REAL_COMMANDS=true 才触碰真实设备
 ```
 
-默认运行模式是 `simulation`，所有网络命令进入 SecurityChecker 后只写入审计日志，不会修改本机网络。生产环境可在 `.env` 中设置 `NETMIND_DRIVER=mininet` 并以具备网络权限的容器运行。
+默认运行模式是 `simulation`，所有网络命令进入 SecurityChecker 后只写入审计日志，不会修改本机网络。接入真实设备时在 `.env` 中设置 `NETMIND_DRIVER=ssh`（或 `netconf`）并提供凭据，显式设置 `NETMIND_ENABLE_REAL_COMMANDS=true` 前所有命令保持干跑。

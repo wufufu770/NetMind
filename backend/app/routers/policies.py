@@ -57,4 +57,4 @@ def auto_fix_policy(execution_id: str):
 @router.get('/api/drivers')
 def drivers():
     from ..core.transaction import TRANSACTION
-    return {'active': TRANSACTION.driver.snapshot(), 'available':['simulation','mininet','ssh','netconf'], 'real_commands_enabled': os.getenv('NETMIND_ENABLE_REAL_COMMANDS','false')}
+    return {'active': TRANSACTION.driver.snapshot(), 'available':['simulation','ssh','netconf'], 'real_commands_enabled': os.getenv('NETMIND_ENABLE_REAL_COMMANDS','false')}
