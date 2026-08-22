@@ -4,6 +4,25 @@ from .security import SECURITY
 from .topology import TOPOLOGY
 
 class PolicyVerifier:
+    @staticmethod
+    def _semantic_conflicts(policy_set: PolicySet) -> list[VerificationIssue]:
+        issues=[]
+        guarantees=[p for p in policy_set.policies if p.type=='qos' and 'guarantee' in (p.action or '')]
+        limits=[p for p in policy_set.policies if p.type=='qos' and 'limit' in (p.action or '')]
+        denials=[p for p in policy_set.policies if p.type=='acl' and any(k in (p.action or '') for k in ('deny','forbid','isolation'))]
+        for g in guarantees:
+            for d in denials:
+                gd=g.params.get('dst'); dd=d.params.get('dst')
+                if gd and dd and gd==dd:
+                    issues.append(VerificationIssue(severity='warning', code='ACL_PRIORITY_OVERLAP', message=f"QoS 保障 {g.name} 与 ACL 拒绝 {d.name} 同时作用于 {gd}，存在优先级重叠。", auto_fixable=True, related_policy_ids=[g.id,d.id]))
+        for g in guarantees:
+            for l in limits:
+                gs=g.params.get('src'); ls=l.params.get('src')
+                gd2=g.params.get('dst'); ld2=l.params.get('dst')
+                if gs and gs==ls and gd2==ld2:
+                    issues.append(VerificationIssue(severity='warning', code='QOS_OVERCONSTRAINT', message=f"同一流量类同时被保障与限速（{g.name}/{l.name}），需拆分队列。", auto_fixable=False, related_policy_ids=[g.id,l.id]))
+        return issues
+
     def check(self, policy_set: PolicySet, intent: IntentDSL|None=None) -> VerificationReport:
         issues=[]
         reachable=True
@@ -35,6 +54,7 @@ class PolicyVerifier:
             if not sla_feasible:
                 issues.append(VerificationIssue(severity='warning', code='SLA_LOW_CONFIDENCE', message=f'当前拓扑路径最短时延 {pl}ms，无法满足目标 {target}ms。'))
         passed=security_passed and reachable and not any(i.severity=='error' for i in issues)
+        issues.extend(self._semantic_conflicts(policy_set))
         fixed=None
         if any(i.auto_fixable for i in issues):
             fixed=policy_set.model_copy(deep=True)

@@ -77,7 +77,7 @@ class VerificationReport(BaseModel):
     conflicts: List[VerificationIssue] = Field(default_factory=list)
     reachable: bool = True
     sla_feasible: bool = True
-    sla_confidence: float = 0.92
+    sla_confidence: Optional[float] = None
     security_passed: bool = True
     rollback_ready: bool = True
     need_human: bool = False

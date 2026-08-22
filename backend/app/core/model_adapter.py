@@ -87,37 +87,14 @@ class ModelAdapter:
         return 'Mock response: 当前网络健康，建议先处理 ACL 优先级冲突。'
 
     def _mock_intent_json(self, text: str) -> Dict[str, Any]:
-        business='default'
-        if any(k in text for k in ['答辩','会议','视频','meeting']): business='video_meeting'
-        elif any(k in text for k in ['访客','来宾','guest']): business='guest_limiting'
-        elif any(k in text for k in ['实验室','lab']): business='lab_isolation'
-        elif any(k in text for k in ['备份','backup']): business='backup'
-        elif any(k in text for k in ['考试','exam']): business='exam'
-        latency=50 if '50' in text or '低于' in text else 80
-        guest_limit=5 if '5' in text or '访客' in text else None
-        return {
-            'business': business,
-            'description': text[-300:],
-            'target': {'src':'teacher_terminal','dst':'meeting_server','traffic_type':'video'},
-            'sla': {'latency_ms': latency, 'packet_loss': 0.01, 'bandwidth_mbps': 20, 'jitter_ms': None},
-            'constraints': {'guest_limit_mbps': guest_limit, 'forbid_guest_to_lab': True, 'allowed_ports': [], 'denied_ports': [], 'allowed_protocols': ['tcp','udp','icmp'], 'time_range': {'start':'20:00','end':'22:00'} if '8' in text or '20' in text else None},
-            'priority': 'critical' if '紧急' in text else 'high',
-            'recover_policy': 'auto_reroute',
-            'rollback_on_failure': True,
-            'notify_on_completion': True,
-            'tags': ['model_generated']
-        }
+        from .rule_engine import RULE_ENGINE
+        intent=RULE_ENGINE.parse_intent(text)
+        return intent.model_dump()
 
     def _mock_policy_json(self, text: str) -> Dict[str, Any]:
-        business = 'guest_limiting' if 'guest_limiting' in text or '访客' in text else 'video_meeting'
-        policies=[]
-        if business == 'video_meeting':
-            policies.append({'type':'qos','name':'llm_video_priority','action':'guarantee_bandwidth','priority':10,'source':'llm','params':{'bandwidth_mbps':20,'queue':5},'commands':['tc qdisc add dev s1-eth1 root handle 1: htb','ovs-ofctl add-flow s1 cookie=0x4e65744d0000a101,priority=520,ip,actions=normal'],'rollback_commands':['tc qdisc del dev s1-eth1 root','ovs-ofctl del-flows s1 cookie=0x4e65744d0000a101/-1']})
-            policies.append({'type':'route','name':'llm_backup_path','action':'prefer_path','priority':20,'source':'llm','params':{'path':['s1','s2'],'trigger_latency_ms':50},'commands':['ovs-ofctl add-flow s1 cookie=0x4e65744d0000a102,priority=470,actions=normal'],'rollback_commands':['ovs-ofctl del-flows s1 cookie=0x4e65744d0000a102/-1']})
-        if 'guest_limit_mbps' in text or business == 'guest_limiting':
-            policies.append({'type':'acl','name':'llm_guest_isolation','action':'deny_guest_to_lab','priority':30,'source':'llm','params':{'src':'guest_terminal','dst':'lab_server'},'commands':['iptables -A FORWARD -s 192.168.10.0/24 -d 10.0.0.2 -j DROP'],'rollback_commands':['iptables -D FORWARD -s 192.168.10.0/24 -d 10.0.0.2 -j DROP']})
-            policies.append({'type':'qos','name':'llm_guest_limit','action':'limit_bandwidth','priority':40,'source':'llm','params':{'limit_mbps':5},'commands':['tc class add dev s1-eth3 parent 1: classid 1:30 htb rate 5mbit'],'rollback_commands':['tc class del dev s1-eth3 classid 1:30']})
-        return {'intent_id':'model-intent','policies':policies,'source':'llm:mock'}
+        from .rule_engine import RULE_ENGINE
+        intent=RULE_ENGINE.parse_intent(text)
+        return RULE_ENGINE.plan(intent).model_dump()
 
     def _extract_json(self, content: str) -> Any:
         content = content.strip()
