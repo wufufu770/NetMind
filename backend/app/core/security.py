@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import re
 from ..schemas import CommandResult
 
@@ -14,7 +15,13 @@ class SecurityChecker:
             r'^ping -c ([1-9]|10) .+$',
             r'^iperf3 .+$'
         ]
-        self.dangerous_legal=['ovs-ofctl del-flows s1','iptables -F FORWARD','iptables -F INPUT','iptables -F OUTPUT']
+        # 语义级危险操作：按操作类型判定，与目标设备名无关。
+        self.dangerous_ops=[
+            re.compile(r'^ovs-ofctl\s+del-flows\b'),
+            re.compile(r'^iptables\s+-F\b'),
+        ]
+        # 兼容入口：运维可通过 configure() 追加额外前缀（精确前缀匹配）。
+        self.dangerous_legal=[]
         self.unattended_policy='deny'
 
     def _has_blacklisted_token(self, command: str, token: str) -> bool:
@@ -23,31 +30,54 @@ class SecurityChecker:
             return token in low
         return re.search(r'(^|[^a-z0-9_-])' + re.escape(token) + r'($|[^a-z0-9_-])', low) is not None
 
+    def _dangerous_target(self, command: str) -> str:
+        parts=command.split()
+        return parts[2] if len(parts) > 2 else 'unknown-target'
+
+    def _is_dangerous(self, command: str) -> bool:
+        if any(p.match(command) for p in self.dangerous_ops):
+            return True
+        return any(command.startswith(d) for d in self.dangerous_legal)
+
+    def _has_owned_cookie(self, command: str) -> bool:
+        return re.search(r'cookie=0x4e65744d[0-9a-fA-F]{8}', command) is not None
+
     def check(self, command: str, allow_dangerous: bool=False) -> CommandResult:
         for bad in self.blacklist:
             if self._has_blacklisted_token(command, bad):
                 return CommandResult(command=command, success=False, output=f'blocked blacklist keyword: {bad}', blocked=True)
-        if any(command.startswith(d) for d in self.dangerous_legal):
+        if self._is_dangerous(command):
+            target=self._dangerous_target(command)
             if allow_dangerous:
-                return CommandResult(command=command, success=True, output='security check passed (rollback path)')
+                # 回滚路径只对携带合法 NetMind cookie 的命令放行（证明回滚的是本系统下发的规则），
+                # 其余一律照常走审批门禁，防止 LLM 生成的回滚命令夹带高危操作。
+                if self._has_owned_cookie(command):
+                    return CommandResult(command=command, success=True, output=f'security check passed (rollback of NetMind-owned rule on {target})')
             if self.unattended_policy == 'deny':
-                return CommandResult(command=command, success=False, output='blocked by unattended_policy=deny; route through the approval workflow', blocked=True)
-            return CommandResult(command=command, success=False, output='requires human approval', requires_approval=True)
+                return CommandResult(command=command, success=False, output=f'blocked by unattended_policy=deny ({target}); route through the approval workflow', blocked=True)
+            return CommandResult(command=command, success=False, output=f'requires human approval: dangerous op on {target}', requires_approval=True)
         if not any(re.match(p, command) for p in self.allow_patterns):
             return CommandResult(command=command, success=False, output='command not in whitelist', blocked=True)
-        if 'cookie=' in command and not re.search(r'cookie=0x4e65744d[0-9a-fA-F]{8}', command):
+        if 'cookie=' in command and not self._has_owned_cookie(command):
             return CommandResult(command=command, success=False, output='invalid NetMind cookie', blocked=True)
         if 'tc ' in command and re.search(r'dev ([^\s]+)', command):
             dev=re.search(r'dev ([^\s]+)', command).group(1)
-            if not re.match(r'^[sh][0-9]+-eth[0-9]+$', dev):
+            if self._real_mode():
+                if not re.match(r'^[A-Za-z0-9@._:-]+$', dev):
+                    return CommandResult(command=command, success=False, output='invalid interface name for real-device policy', blocked=True)
+            elif not re.match(r'^[sh][0-9]+-eth[0-9]+$', dev):
                 return CommandResult(command=command, success=False, output='invalid interface for Mininet safety policy', blocked=True)
         return CommandResult(command=command, success=True, output='security check passed')
+
+    def _real_mode(self) -> bool:
+        driver=os.getenv('NETMIND_DRIVER','simulation').lower()
+        return driver in ('ssh','netconf') and os.getenv('NETMIND_ENABLE_REAL_COMMANDS','false').lower() == 'true'
 
     def snapshot(self) -> dict:
         return {
             'allowlist': sorted({p.split()[0] for p in self.allow_patterns}),
             'deny_keywords': list(self.blacklist),
-            'approval_required': list(self.dangerous_legal),
+            'approval_required': [p.pattern for p in self.dangerous_ops] + list(self.dangerous_legal),
             'unattended_policy': self.unattended_policy,
         }
 

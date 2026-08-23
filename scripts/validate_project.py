@@ -17,7 +17,7 @@ required=[
     'backend/app/core/langgraph_compat.py','backend/app/core/mcp_protocol.py','backend/app/core/chat_agent.py',
     'backend/app/core/tool_sequence.py','backend/app/core/config_extras.py',
     'backend/app/core/report_renderer.py',
-    'backend/tests/test_v4_ten_round_completion.py'
+    'backend/tests/test_langgraph_mcp_chat_config.py'
 ]
 for rel in required:
     add(f'file:{rel}', (ROOT/rel).exists())

@@ -9,6 +9,27 @@ def _transaction():
     from ..core.transaction import TRANSACTION
     return TRANSACTION
 
+def _execute_rollback(execution_id: str) -> dict:
+    txn=_transaction()
+    commands=txn.rollback_plan(get_execution(execution_id).policy_set)
+    if not commands:
+        STORE.log('deploy', f'rollback skipped for {execution_id}: empty rollback plan', 'warn', execution_id)
+        return {'execution_id': execution_id, 'rolled_back': False, 'commands': [], 'executed': [], 'success': False}
+    executed=[]
+    for rcmd in commands:
+        sec=txn_security_check(rcmd)
+        if not sec.success:
+            executed.append(sec.model_dump(mode='json'))
+            continue
+        executed.append(txn.driver.execute(rcmd).model_dump(mode='json'))
+    ok=bool(executed) and all(e['success'] for e in executed)
+    STORE.log('deploy', f'rollback {"executed" if ok else "incomplete"} for {execution_id}', 'info' if ok else 'error', execution_id, data={'commands': commands})
+    return {'execution_id': execution_id, 'rolled_back': ok, 'commands': commands, 'executed': executed, 'success': ok}
+
+def txn_security_check(command: str):
+    from ..core.security import SECURITY
+    return SECURITY.check(command, allow_dangerous=True)
+
 @router.post('/api/deploy/{execution_id}')
 def deploy(execution_id: str):
     ex=get_execution(execution_id)
@@ -25,6 +46,4 @@ def rollback_plan(execution_id: str):
 def rollback_execution(execution_id: str):
     ex=get_execution(execution_id)
     if not ex.policy_set: raise HTTPException(400,'no policy set')
-    commands = _transaction().rollback_plan(ex.policy_set)
-    STORE.log('deploy', f'rollback plan executed for {execution_id}', 'warn', execution_id, data={'commands': commands})
-    return {'execution_id': execution_id, 'rolled_back': True, 'commands': commands, 'success': True}
+    return _execute_rollback(execution_id)
