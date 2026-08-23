@@ -73,6 +73,17 @@ pip install ./backend        # or: pipx install ./backend
 netmind --help
 ```
 
+## 只读巡检（v1）
+
+`netmind audit` 对一台路由器做**只读**合规基线检查并生成报告——这是 NetMind 第一个不依赖仿真环境的真实价值场景：
+
+```bash
+netmind audit                 # 模拟演练（默认，报告显式标注 simulated）
+netmind audit --mode real     # 连接真实设备（需 NETMIND_ENABLE_REAL_COMMANDS=true 与 SSH 凭据）
+```
+
+检查项：固件版本采集 / SSH 口令登录面 / UPnP 状态 / 防火墙规则存在性 / 高危管理端口(23,8080)监听 / 无线开放接口。全部命令走只读白名单（构造期+运行期双重强制），写路径零接触。
+
 ## Demo
 
 No hardware needed — validate a containerlab topology straight from its YAML:

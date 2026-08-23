@@ -725,7 +725,7 @@ function IntentConsole({ setPage, setToast }) {
 
       <Card title="Intent DSL 可视化" action={<button type="button" onClick={() => copyText(parseResult, setToast)}><Copy size={14} />复制 DSL</button>}>
         {parseResult ? <DslSummary intent={parseResult} /> : <EmptyState title="还未解析" text="解析或编译后显示。" icon={Radio} />}
-        {compileResult?.validation && <div className="validation-panel"><h4>Schema 校验</h4><VerificationSummary report={{ passed: compileResult.validation.valid, reachable: true, sla_feasible: true, security_passed: true, rollback_ready: true, sla_confidence: compileResult.validation.valid ? 1 : .4 }} />{compileResult.validation.issues?.length ? <JsonBlock data={compileResult.validation} setToast={setToast} maxHeight={220} /> : <InlineSuccess text="IntentDSL Schema 校验通过。" />}</div>}
+        {compileResult?.validation && <div className="validation-panel"><h4>Schema 校验</h4><VerificationSummary report={{ passed: compileResult.validation.valid }} />{compileResult.validation.issues?.length ? <JsonBlock data={compileResult.validation} setToast={setToast} maxHeight={220} /> : <InlineSuccess text="IntentDSL Schema 校验通过。" />}</div>}
       </Card>
 
       <Card className="panel-scroll" title="执行链路" action={<button type="button" onClick={() => result && setPage('agents')} disabled={!result}><Bot size={14} />查看 Agent</button>}>
@@ -1080,11 +1080,12 @@ function PolicyTable({ policySet }) {
 function VerificationSummary({ report }) {
   const items = [
     ['验证结论', report.passed ? '通过' : '未通过', report.passed ? 'ok' : 'warn'],
-    ['可达性', report.reachable ? '可达' : '不可达', report.reachable ? 'ok' : 'error'],
-    ['SLA 可行性', report.sla_feasible ? '可行' : '不可行', report.sla_feasible ? 'ok' : 'warn'],
-    ['安全检查', report.security_passed ? '通过' : '阻断', report.security_passed ? 'ok' : 'error'],
-    ['回滚计划', report.rollback_ready ? '就绪' : '缺失', report.rollback_ready ? 'ok' : 'warn'],
-    ['置信度', `${Math.round((report.sla_confidence || 0) * 100)}%`, 'neutral'],
+    // 未提供的字段如实显示「未知」，不硬编码成功
+    ['可达性', report.reachable === undefined ? '未知' : (report.reachable ? '可达' : '不可达'), report.reachable ? 'ok' : (report.reachable === undefined ? 'neutral' : 'error')],
+    ['SLA 可行性', report.sla_feasible === undefined ? '未知' : (report.sla_feasible ? '可行' : '不可行'), report.sla_feasible || report.sla_feasible === undefined ? (report.sla_feasible === undefined ? 'neutral' : 'ok') : 'warn'],
+    ['安全检查', report.security_passed === undefined ? '未知' : (report.security_passed ? '通过' : '阻断'), report.security_passed ? 'ok' : (report.security_passed === undefined ? 'neutral' : 'error')],
+    ['回滚计划', report.rollback_ready === undefined ? '未知' : (report.rollback_ready ? '就绪' : '缺失'), report.rollback_ready ? 'ok' : (report.rollback_ready === undefined ? 'neutral' : 'warn')],
+    ['置信度', report.sla_confidence === undefined ? '—' : `${Math.round((report.sla_confidence || 0) * 100)}%`, 'neutral'],
   ];
   return <div className="summary-grid">{items.map(([k, v, tone]) => <div key={k} className={tone}><small>{k}</small><b>{v}</b></div>)}</div>;
 }

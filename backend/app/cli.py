@@ -90,8 +90,8 @@ def config_export_yaml(path: str='netmind_config.yml'):
 def scenario(name: str='defense'):
     print(_post(f'/api/experiment/scenario/{name}', {}))
 
-@app.command()
-def audit():
+@app.command('audit-summary')
+def audit_summary():
     print(_get('/api/audit/summary'))
 
 @app.command('tool-call')
@@ -100,6 +100,24 @@ def tool_call(tool_name: str, command: str=''):
 
 def run():
     app()
+
+@app.command()
+def audit(
+    mode: str = typer.Option('', '--mode', help='real=连接真实设备(需 NETMIND_ENABLE_REAL_COMMANDS=true)；默认模拟演练'),
+    note: str = typer.Option('', '--note', help='备注写入报告'),
+):
+    """只读巡检：固件版本 / SSH 口令面 / UPnP / 防火墙 / 管理端口 / 无线加密基线。"""
+    payload = {'mode': mode} if mode else {}
+    if note:
+        payload['note'] = note
+    r = _post('/api/audit/run', payload)
+    tone = 'red' if r['summary']['fail'] else ('yellow' if r['summary']['warn'] else 'green')
+    console.print(f"[bold]{r['audit_id']}[/] mode={r['mode']} target={r['target']} verdict=[{tone}]{r['verdict']}[/]")
+    tb = Table('check', '状态', '证据')
+    for c in r['checks']:
+        tb.add_row(c['title'], c['status'], str(c.get('evidence', '-'))[:80])
+    console.print(tb)
+    console.print(f"报告: {r.get('report_path','-')}")
 
 @app.command('diagnose')
 def diagnose_cmd(

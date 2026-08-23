@@ -7,7 +7,7 @@ from .store import STORE
 from . import __version__
 from .routers import (system, intents, templates_manage, policies, deploy,
                       approvals, topology, telemetry, agents, logs_audit,
-                      config, workflows, tools_mcp, reports)
+                      config, workflows, tools_mcp, reports, audit)
 
 app=FastAPI(title='NetMind API', version=__version__)
 _cors=[o.strip() for o in os.getenv('NETMIND_CORS_ORIGINS','*').split(',') if o.strip()]
@@ -36,5 +36,5 @@ STORE.start_autosave()
 
 for module in [system, intents, templates_manage, policies, deploy, approvals,
                topology, telemetry, agents, logs_audit, config, workflows,
-               tools_mcp, reports]:
+               tools_mcp, reports, audit]:
     app.include_router(module.router)
