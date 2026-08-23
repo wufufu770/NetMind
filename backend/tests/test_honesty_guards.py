@@ -34,10 +34,16 @@ def test_rollback_ready_requires_rollback_commands():
     ps2=PolicySet(intent_id='t', policies=[Policy(type='route', name='x', action='normal', priority=1, params={}, commands=['ovs-ofctl dump-flows s1'], rollback_commands=['ovs-ofctl del-flows s1 cookie=0x4e65744d00000009/-1'])])
     assert VERIFIER.check(ps2).rollback_ready is True
 
-def test_dangerous_commands_blocked_unless_rollback_path():
-    cmd='ovs-ofctl del-flows s1 cookie=0x4e65744d00000001'
+def test_dangerous_commands_blocked_unless_registered_rollback():
+    # 用本测试独有的 cookie，避免与其他用例的登记表状态串扰
+    cmd='ovs-ofctl del-flows s1 cookie=0x4e65744d5afe0001'
     res=SECURITY.check(cmd)
     assert res.success is False or res.requires_approval is True or res.blocked is True
+    # 未登记的合法格式 cookie 不享有回滚特权
+    rb_unregistered=SECURITY.check(cmd, allow_dangerous=True)
+    assert rb_unregistered.success is False
+    # 部署入口登记后（模拟 TransactionManager 行为）方可回滚
+    STORE.register_flow_cookies([cmd], 'exec-honesty')
     rb=SECURITY.check(cmd, allow_dangerous=True)
     assert rb.success is True
     evil=SECURITY.check('rm -rf /', allow_dangerous=True)

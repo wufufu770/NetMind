@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict, List, Any
 from pathlib import Path
-import atexit, json, os, threading, time
+import atexit, json, os, re, threading, time
 from .schemas import *
 
 MAX_LOGS=2000
@@ -33,6 +33,9 @@ class PersistentStore:
         self.credentials: Dict[str, CredentialConfig] = {}
         self.templates: Dict[str, str] = {}
         self.agent_schedules: Dict[str, Dict[str, Any]] = {}
+        # 已签发流表 cookie 登记表：cookie -> 签发它的 execution_id。
+        # 回滚路径只信任这里登记过的 cookie，而非仅校验格式（格式可从源码推知伪造）。
+        self.flow_cookies: Dict[str, str] = {}
         self._lock=threading.RLock()
         self._dirty=False
         self._last_save=0.0
@@ -60,6 +63,7 @@ class PersistentStore:
             'credentials': {k: {**v.model_dump(mode='json'), 'secret_ref': '***' if v.secret_ref else ''} for k, v in self.credentials.items()},
             'templates': self.templates,
             'agent_schedules': self.agent_schedules,
+            'flow_cookies': dict(self.flow_cookies),
         }
 
     def save(self) -> None:
@@ -117,6 +121,7 @@ class PersistentStore:
             self.credentials.update({k: CredentialConfig(**{**v, 'secret_ref': '' if v.get('secret_ref') == '***' else v.get('secret_ref','')}) for k, v in raw.get('credentials', {}).items()})
             self.templates.update(raw.get('templates', {}))
             self.agent_schedules.update(raw.get('agent_schedules', {}))
+            self.flow_cookies.update({str(k): str(v) for k, v in raw.get('flow_cookies', {}).items()})
             if len(self.executions) > 200:
                 self.executions = dict(list(self.executions.items())[-200:])
         except Exception as exc:
@@ -126,6 +131,25 @@ class PersistentStore:
     def reset_runtime(self) -> None:
         self.executions.clear(); self.logs.clear(); self.approvals.clear(); self.telemetry.clear()
         self.save()
+
+    COOKIE_RE = re.compile(r'cookie=(0x4e65744d[0-9a-fA-F]{8})')
+
+    def register_flow_cookies(self, commands: list[str], execution_id: str) -> int:
+        """把系统规划命令中出现的 NetMind 格式 cookie 登记为已签发。返回新登记数量。"""
+        added = 0
+        with self._lock:
+            for cmd in commands or []:
+                for m in self.COOKIE_RE.finditer(cmd or ''):
+                    cookie = m.group(1)
+                    if cookie not in self.flow_cookies:
+                        self.flow_cookies[cookie] = execution_id
+                        added += 1
+            self.mark_dirty()
+        return added
+
+    def has_flow_cookie(self, command: str) -> bool:
+        """命令中携带的任一 NetMind cookie 是否为系统登记签发的。"""
+        return any(m.group(1) in self.flow_cookies for m in self.COOKIE_RE.finditer(command or ''))
 
     def log(self, source: str, message: str, level: str='info', execution_id: str|None=None, data: dict|None=None):
         entry=LogEntry(source=source, message=message, level=level, execution_id=execution_id, data=data or {})

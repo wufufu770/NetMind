@@ -16,9 +16,14 @@ class SecurityChecker:
             r'^iperf3 .+$'
         ]
         # 语义级危险操作：按操作类型判定，与目标设备名无关。
+        # mod-flows 可重写流表；ip link set down / route del / addr del 可致业务中断。
         self.dangerous_ops=[
             re.compile(r'^ovs-ofctl\s+del-flows\b'),
+            re.compile(r'^ovs-ofctl\s+mod-flows\b'),
             re.compile(r'^iptables\s+-F\b'),
+            re.compile(r'^ip\s+link\s+set\s+\S+\s+down\b'),
+            re.compile(r'^ip\s+route\s+del\b'),
+            re.compile(r'^ip\s+addr\s+del\b'),
         ]
         # 兼容入口：运维可通过 configure() 追加额外前缀（精确前缀匹配）。
         self.dangerous_legal=[]
@@ -40,7 +45,15 @@ class SecurityChecker:
         return any(command.startswith(d) for d in self.dangerous_legal)
 
     def _has_owned_cookie(self, command: str) -> bool:
-        return re.search(r'cookie=0x4e65744d[0-9a-fA-F]{8}', command) is not None
+        """命令携带的 NetMind cookie 必须是系统登记签发过的（格式 + 登记双校验）。
+
+        仅校验格式不够：0x4e65744d 前缀可从源码推知，攻击者或 LLM 幻觉可伪造
+        「自有规则」的回滚命令。登记表由 TransactionManager 在部署时写入。
+        """
+        if not re.search(r'cookie=0x4e65744d[0-9a-fA-F]{8}', command):
+            return False
+        from ..store import STORE  # 延迟导入避免环
+        return STORE.has_flow_cookie(command)
 
     def check(self, command: str, allow_dangerous: bool=False) -> CommandResult:
         for bad in self.blacklist:
@@ -58,7 +71,7 @@ class SecurityChecker:
             return CommandResult(command=command, success=False, output=f'requires human approval: dangerous op on {target}', requires_approval=True)
         if not any(re.match(p, command) for p in self.allow_patterns):
             return CommandResult(command=command, success=False, output='command not in whitelist', blocked=True)
-        if 'cookie=' in command and not self._has_owned_cookie(command):
+        if 'cookie=' in command and not re.search(r'cookie=0x4e65744d[0-9a-fA-F]{8}', command):
             return CommandResult(command=command, success=False, output='invalid NetMind cookie', blocked=True)
         if 'tc ' in command and re.search(r'dev ([^\s]+)', command):
             dev=re.search(r'dev ([^\s]+)', command).group(1)

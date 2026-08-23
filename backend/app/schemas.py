@@ -94,6 +94,7 @@ class DeployResult(BaseModel):
     execution_id: str
     executed: List[CommandResult] = Field(default_factory=list)
     rolled_back: bool = False
+    rollback_complete: Optional[bool] = None  # 回滚是否全部成功；None=未触发回滚
     success: bool = True
     mode: Literal['simulated','dry-run','real'] = 'simulated'
 

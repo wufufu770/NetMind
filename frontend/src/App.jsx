@@ -970,8 +970,17 @@ function Verification({ setToast }) {
     if (!selected?.execution_id) return toastMessage(setToast, 'warn', '请选择执行记录');
     try {
       const data = await request(`/api/deploy/${selected.execution_id}`, { method: 'POST' });
-      setManualResult({ deploy: data, passed: data.success, reachable: true, sla_feasible: true, security_passed: data.success, rollback_ready: true, sla_confidence: data.success ? 1 : .4 });
-      toastMessage(setToast, data.success ? 'success' : 'warn', data.success ? '配置已通过 TransactionManager 下发' : '下发失败，已尝试回滚');
+      // 指标取真实数据:security_passed 看逐命令结果,rollback_ready 看回滚计划是否非空
+      const securityPassed = Array.isArray(data.executed) && data.executed.length > 0
+        ? data.executed.every((c) => !c.blocked && !c.requires_approval)
+        : data.success;
+      let rollbackReady = false;
+      try {
+        const plan = await request(`/api/deploy/${selected.execution_id}/rollback-plan`);
+        rollbackReady = Array.isArray(plan.rollback_commands) && plan.rollback_commands.length > 0;
+      } catch { /* 计划获取失败时按 false 展示 */ }
+      setManualResult({ deploy: data, passed: data.success, reachable: true, sla_feasible: true, security_passed: securityPassed, rollback_ready: rollbackReady, sla_confidence: data.success ? 1 : .4 });
+      toastMessage(setToast, data.success ? 'success' : 'warn', data.success ? '配置已通过 TransactionManager 下发' : (data.rollback_complete === false ? '下发失败，自动回滚未全部完成' : '下发失败，已尝试回滚'));
     } catch (err) {
       toastMessage(setToast, 'error', `下发失败：${err.message}`);
     }
@@ -981,7 +990,7 @@ function Verification({ setToast }) {
     if (!selected?.execution_id) return toastMessage(setToast, 'warn', '请选择执行记录');
     try {
       const data = await request(`/api/deploy/${selected.execution_id}/rollback`, { method: 'POST' });
-      setManualResult({ rollback: data, passed: data.success, reachable: true, sla_feasible: true, security_passed: data.success, rollback_ready: true, sla_confidence: data.success ? 1 : .4 });
+      setManualResult({ rollback: data, passed: data.success, reachable: true, sla_feasible: true, security_passed: data.success, rollback_ready: data.success, sla_confidence: data.success ? 1 : .4 });
       toastMessage(setToast, data.success ? 'success' : 'warn', data.success ? 'RollbackManager 已执行原子回滚' : '回滚执行存在失败命令');
     } catch (err) {
       toastMessage(setToast, 'error', `回滚失败：${err.message}`);
