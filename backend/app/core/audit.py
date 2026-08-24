@@ -4,13 +4,7 @@ import re
 from datetime import datetime
 from ..store import STORE
 
-"""只读巡检引擎 v1 —— 家用/小微企业路由器合规基线。
-
-设计红线：
-- 全部检查命令均为只读（READONLY_GUARD 强制，单元测试逐条断言）；
-- 真实执行必须同时满足 NETMIND_ENABLE_REAL_COMMANDS=true 与已配置凭据，
-  否则降级为模拟模式，结果显式标注 mode=simulated，不谎报。
-"""
+"""只读巡检 v1 —— 路由器合规基线。命令全部只读；真实执行受门禁控制。"""
 
 
 class ReadonlyViolation(Exception):

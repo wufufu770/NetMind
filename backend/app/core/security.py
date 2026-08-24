@@ -15,8 +15,7 @@ class SecurityChecker:
             r'^ping -c ([1-9]|10) .+$',
             r'^iperf3 .+$'
         ]
-        # 语义级危险操作：按操作类型判定，与目标设备名无关。
-        # mod-flows 可重写流表；ip link set down / route del / addr del 可致业务中断。
+        # 危险操作按语义判定，与设备名无关。
         self.dangerous_ops=[
             re.compile(r'^ovs-ofctl\s+del-flows\b'),
             re.compile(r'^ovs-ofctl\s+mod-flows\b'),
@@ -45,11 +44,7 @@ class SecurityChecker:
         return any(command.startswith(d) for d in self.dangerous_legal)
 
     def _has_owned_cookie(self, command: str) -> bool:
-        """命令携带的 NetMind cookie 必须是系统登记签发过的（格式 + 登记双校验）。
-
-        仅校验格式不够：0x4e65744d 前缀可从源码推知，攻击者或 LLM 幻觉可伪造
-        「自有规则」的回滚命令。登记表由 TransactionManager 在部署时写入。
-        """
+        """cookie 需为系统登记签发；格式可伪造，登记不可。"""
         if not re.search(r'cookie=0x4e65744d[0-9a-fA-F]{8}', command):
             return False
         from ..store import STORE  # 延迟导入避免环
@@ -62,8 +57,7 @@ class SecurityChecker:
         if self._is_dangerous(command):
             target=self._dangerous_target(command)
             if allow_dangerous:
-                # 回滚路径只对携带合法 NetMind cookie 的命令放行（证明回滚的是本系统下发的规则），
-                # 其余一律照常走审批门禁，防止 LLM 生成的回滚命令夹带高危操作。
+                # 回滚仅放行本系统签发的规则。
                 if self._has_owned_cookie(command):
                     return CommandResult(command=command, success=True, output=f'security check passed (rollback of NetMind-owned rule on {target})')
             if self.unattended_policy == 'deny':

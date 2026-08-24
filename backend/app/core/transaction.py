@@ -17,8 +17,7 @@ class TransactionManager:
     def __init__(self): self.driver=build_driver()
     def deploy(self, execution_id: str, policy_set: PolicySet) -> DeployResult:
         mode=self.driver.mode()
-        # 登记本策略集签发的全部流表 cookie：此后回滚路径只放行这些 cookie，
-        # 计划外的伪造回滚命令会被门禁拦截。登记含回滚命令本身（与正向命令同源规划）。
+        # 登记本策略集签发的流表 cookie；回滚仅放行已登记项。
         planned=[c for p in policy_set.policies for c in (list(p.commands)+list(p.rollback_commands))]
         STORE.register_flow_cookies(planned, execution_id)
         executed=[]; rollback=[]; rb_all_ok=True

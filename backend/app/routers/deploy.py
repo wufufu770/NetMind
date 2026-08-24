@@ -18,8 +18,6 @@ def _execute_rollback(execution_id: str) -> dict:
     if not commands:
         STORE.log('deploy', f'rollback skipped for {execution_id}: empty rollback plan', 'warn', execution_id)
         return {'execution_id': execution_id, 'rolled_back': False, 'rollback_complete': False, 'commands': [], 'executed': [], 'success': False}
-    # 回滚命令与正向命令同源规划：执行前把该策略集的 cookie 登记为已签发，
-    # 使合法回滚通过所有权校验（部署时已登记过，此处幂等兜底）。
     from ..store import STORE as _STORE
     _STORE.register_flow_cookies(commands, execution_id)
     executed=[]

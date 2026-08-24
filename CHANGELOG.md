@@ -5,21 +5,20 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 ## [Unreleased]
 
 ### Security
-- Dangerous-op gate is semantic: any `del-flows` / `mod-flows` / `iptables -F` / `ip link set down` / `ip route del` / `ip addr del` requires the approval workflow regardless of target device (was: hardcoded `s1` prefix match let `del-flows s2` through).
-- Rollback privilege now requires a server-issued flow cookie: TransactionManager registers every planned cookie at deploy time; forged or foreign cookies on rollback commands fall through to the gate instead of executing.
-- POST `/api/deploy/{id}/rollback` actually executes the plan through the driver with per-command checks and honest per-command results; returns 409 when the execution was never deployed.
+- 危险操作门禁按语义判定：del-flows / mod-flows / iptables -F / link down / route del / addr del，与设备名无关。
+- 回滚特权基于服务端签发的 cookie 登记表；未登记命令走审批门禁。
+- POST `/api/deploy/{id}/rollback` 真实执行回滚计划并逐命令校验；未部署返回 409。
 
 ### Changed
-- `DeployResult.rollback_complete` distinguishes a fully successful auto-rollback from a partial attempt (`rolled_back` stays "attempted").
-- tc interface-name strictness applies to simulation only; ssh/netconf real-device drivers accept standard interface names.
-- Dashboard manual deploy panel derives `security_passed` from per-command results and `rollback_ready` from the actual rollback plan instead of hardcoding success.
+- `DeployResult.rollback_complete` 区分回滚全部成功与部分尝试。
+- tc 接口名严格策略仅限仿真；真实驱动接受标准接口名。
+- 前端 security_passed / rollback_ready 取自实际结果。
 
 ### Removed
-- Committed `backend/build` artifacts from the repository; `.gitignore` now covers `build/`.
+- `backend/build` 构建产物出库；`.gitignore` 增加 `build/`。
 
-### Tests
-- Eval-round test files renamed by subject under test (e.g. `test_round4_reports_store.py` → `test_reports_store.py`, `test_complete_final.py` → `test_api_smoke.py`).
-- New regression suite `test_security_gate_semantics.py`: gate bypass probes, cookie-registry flow, closed-loop rollback integration.
+### Added
+- `netmind audit` 只读巡检 v1 与对应回归测试（后端 67 项）。
 
 ## [0.1.0] - 2026-08-22
 

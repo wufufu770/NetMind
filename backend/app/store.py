@@ -33,8 +33,7 @@ class PersistentStore:
         self.credentials: Dict[str, CredentialConfig] = {}
         self.templates: Dict[str, str] = {}
         self.agent_schedules: Dict[str, Dict[str, Any]] = {}
-        # 已签发流表 cookie 登记表：cookie -> 签发它的 execution_id。
-        # 回滚路径只信任这里登记过的 cookie，而非仅校验格式（格式可从源码推知伪造）。
+        # 已签发流表 cookie -> 签发 execution_id；回滚仅放行已登记项。
         self.flow_cookies: Dict[str, str] = {}
         self._lock=threading.RLock()
         self._dirty=False
