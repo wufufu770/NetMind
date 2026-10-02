@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 11,
+  "cycle": 12,
   "phase": "plan",
-  "updated": "2026-10-02T23:15:45+08:00",
+  "updated": "2026-10-02T23:25:00+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -21,10 +21,10 @@
   },
   "metrics": {
     "tests_collected": 124,
-    "gates_total": 17,
-    "gates_passed": 17,
+    "gates_total": 18,
+    "gates_passed": 18,
     "gates_warned": 0,
-    "src_lines": 8855,
+    "src_lines": 9066,
     "generic_names": 174,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -158,6 +158,18 @@
       "gates_passed": 17,
       "gates_warned": 0,
       "src_lines": 8855,
+      "generic_names": 174,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 12,
+      "tests_collected": 124,
+      "gates_total": 17,
+      "gates_passed": 18,
+      "gates_warned": 0,
+      "src_lines": 9066,
       "generic_names": 174,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -421,6 +433,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-ci-audit",
+      "title": "把「CI 步骤能不能跑」变成门禁",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -530,6 +550,14 @@
       "shipped": "复核确认 SBOM 步骤、state.json 三处陈旧、只读命令写盘均已修复。进一步发现 head 字段的结构性自指问题（save() 在提交前跑，永远差一个 commit），改名为 based_on 并在 _field_semantics 写明差异。新门禁 state-based-on-is-honest 禁止 head 回归、校验 based_on 是真实祖先且落后不超过 3 个 commit。已双向反验：塞回 head 被拦、based_on 指向不存在的 commit 被拦、正常值放行。",
       "at": "2026-10-02T23:15:45+08:00",
       "based_on": "15b7f36"
+    },
+    {
+      "cycle": 12,
+      "id": "W-ci-audit",
+      "title": "把「CI 步骤能不能跑」变成门禁",
+      "shipped": "scripts/ci_audit.py：用 PyYAML 真解析 ci.yml（手写正则漏掉内联 run 块），按命令逐条过滤装依赖部分（npm ci && npm test 原本整块被当 install 跳过），模拟 setup-python 把 venv 放上 PATH。10 步中 7 步实跑全过、3 步按类别跳过。门禁 ci-steps-are-executable 已接入，已反验能抓当初的 SBOM bug。跳过 loop-gates 那步以避免门禁自递归。",
+      "at": "2026-10-02T23:23:20+08:00",
+      "based_on": "b52625d"
     }
   ],
   "retro": [
@@ -740,17 +768,25 @@
       "root_cause": "state.json 用 head 字段标识状态，但 save() 发生在提交之前，所以这个值永远指向「包含本状态的 commit 的上一个」——差一个是结构性的，改不掉。复核时发现提交值 8a869d5 而 HEAD 是 15b7f36，正是这个成因",
       "fix": "① 改名 based_on（本状态基于谁写下，不是本状态在哪个 commit 上）② _field_semantics 字段写明差异——改个名不说理由，下个人还是会当 head 读 ③ 门禁校验：禁止 head 回归、based_on 须为真实祖先、落后不超过 3 个 commit ④ 教训：自指的元数据字段该改名而不是补值；补值只会让下一个人再踩一次",
       "at": "2026-10-02T23:14:38+08:00"
+    },
+    {
+      "cycle": 12,
+      "gate": "ci-audit(自建工具自己踩三个坑)",
+      "on_fail": "manual",
+      "root_cause": "手写正则解析只认出块标量 run: |，内联的 run: pytest -q 全漏；按首个 token 分类把 npm ci && npm test 整块当 install 跳过；直接 bash -c 跑但没把 venv 放上 PATH，python/pytest/pip-audit 全报「命令找不到」，把真失败淹没在环境差异里",
+      "fix": "① 改用 PyYAML 真解析（已在 requirements.txt 里，无额外成本）② 按 && 与行拆分命令，逐条过滤 install ③ 模拟 setup-python 把 sys.executable 的 bin 目录加到 PATH ④ 显式跳过 loop-gates 步以免门禁自递归。教训：自建校验工具本身必须先被校验——这三条都是第一次跑就暴露的",
+      "at": "2026-10-02T23:22:27+08:00"
     }
   ],
-  "gates_total": 17,
+  "gates_total": 18,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T23:15:41+08:00"
+    "planned_at": "2026-10-02T23:23:16+08:00"
   },
-  "based_on": "15b7f36",
+  "based_on": "b52625d",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

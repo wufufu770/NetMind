@@ -321,6 +321,33 @@ assert not bad, '未钉版本的依赖: ' + '; '.join(bad)
 """,
     ),
     Gate(
+        id='ci-steps-are-executable',
+        desc='CI 里每个可实跑的步骤都真跑一遍（不检查 YAML 长什么样，只检查能不能执行）',
+        on_fail='block',
+        check=r"""
+import sys
+sys.path.insert(0, str(ROOT / 'scripts'))
+from ci_audit import audit
+
+# 这条门禁是 SBOM 那个 bug 的根治。成因是：我在 CI 里加了 4 个 job，
+# 只真跑过 2 个，SBOM 那步写了就再没执行——而我在 CHANGELOG 里写了
+# 「supply-chain 全部已修」。写了不跑的 CI 步骤等于没写，还比不写更坏，
+# 因为它让人以为覆盖到了。
+#
+# 所以这里不检查 YAML 长得对不对（文本匹配会命中文档里描述 bug 的那段话），
+# 而是把每条命令拿过来真跑一遍。已反验：把 SBOM 换回当初的 -o/-t 写法会被拦下。
+
+res = audit()
+assert res['total'] > 0, '没解析出任何 CI 步骤——解析器坏了'
+ran = res['ran']
+assert ran, '没有任何 CI 步骤被实跑——全被分类跳过了，等于没验'
+assert not res['failures'], (
+    'CI 步骤实跑失败:\n  ' + '\n  '.join(
+        f"{f['job']}/{f['name']} (ci.yml:{f['line']}) 退出码 {f['exit']}\n{f['tail'][-300:]}"
+        for f in res['failures']))
+""",
+    ),
+    Gate(
         id='state-based-on-is-honest',
         desc='状态文件不得用自指字段冒充当前 HEAD；based_on 必须是真实存在的祖先且不漂太远',
         on_fail='block',

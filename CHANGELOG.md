@@ -3,7 +3,18 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- `scripts/ci_audit.py` + 门禁 `ci-steps-are-executable`：**把 ci.yml 里每条可实跑的
+  命令拿过来真跑一遍**。用 PyYAML 真解析（手写正则只认出块标量 `run: |`，
+  内联的 `run: pytest -q` 全漏，那正是最该跑的）；按命令逐条过滤掉装依赖的部分
+  （`npm ci && npm test` 整块当 install 会把真正该验的 `npm test` 跳过）；
+  模拟 CI 的 setup-python 把 venv bin 放上 PATH。已反验：把 SBOM 换回当初的
+  `-o/-t` 写法会被拦下，换成正确写法放行
+
 ### Fixed
+- CI 审计初版会把 `loop-gates` 那一步也跑一遍——那是门禁执行器自身，
+  在门禁里再跑它等于门禁 → 审计 → 门禁 无限递归。已显式跳过并标注原因
+
 - 状态文件用自指字段 `head` 冒充当前 HEAD：`save()` 发生在提交**之前**，所以这个值
   永远指向「包含本状态的 commit 的上一个」——差一个是结构性的，改不掉。改名为
   `based_on`（本状态基于谁写下），并在 `_field_semantics` 里写明差异
