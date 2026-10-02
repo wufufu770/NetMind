@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 13,
+  "cycle": 14,
   "phase": "plan",
-  "updated": "2026-10-02T23:43:14+08:00",
+  "updated": "2026-10-03T00:41:59+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -186,6 +186,18 @@
       "dead_modules": 0,
       "slop_hits": 0,
       "license_present": true
+    },
+    {
+      "cycle": 14,
+      "tests_collected": 132,
+      "gates_total": 18,
+      "gates_passed": 18,
+      "gates_warned": 0,
+      "src_lines": 9238,
+      "generic_names": 174,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
     }
   ],
   "gates": [
@@ -230,12 +242,96 @@
       "status": "pass"
     }
   ],
-  "current_round": {
-    "id": "W-gate-tidiness",
-    "title": "校验工具不留痕 + 构建产物不入库",
-    "deliverable": "复核四条的终态取证全部通过：SBOM 命令提交值实跑退出码 0 / 12 组件、state.json gates_total 18=18 与 tests_collected 132=132、head 已改 based_on、旧 tests_passed 已移除、loop.py gates 不写盘。取证中发现新问题并修掉：backend/netmind-sbom.json 是 CI artifact 却被纳入版本控制，且 SBOM 门禁每次实跑都把它留在工作树弄脏。已取消跟踪 + 加 .gitignore + 门禁跑完自清理。全量 132(3.12) / 126+6 skipped(3.11) / 126+6 skipped(3.10) / 门禁 18/18。"
-  },
+  "current_round": null,
   "backlog": [
+    {
+      "id": "C1-auth-default-safe",
+      "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
+      "priority": "P0",
+      "depends_on": [],
+      "status": "pending",
+      "note": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖"
+    },
+    {
+      "id": "C2-transaction-tests",
+      "title": "transaction.py 回归（部分回滚/失败回滚/幂等）",
+      "priority": "P0",
+      "depends_on": [],
+      "status": "pending",
+      "note": "deploy/rollback_plan 被测试直接调用 0 处；唯一引用是注释里「模拟其行为」"
+    },
+    {
+      "id": "C3-load-and-recovery",
+      "title": "并发压测 + 强杀恢复 + 备份恢复演练",
+      "priority": "P0",
+      "depends_on": [],
+      "status": "pending",
+      "note": "全仓零压测。单 JSON 文件 + RLock 只护进程内；落盘中途崩溃会不会写半截 JSON 未测"
+    },
+    {
+      "id": "C4-main-path-real-telemetry",
+      "title": "主链路接真实遥测（有 driver 走真采集，无 driver 才降级）",
+      "priority": "P0",
+      "depends_on": [
+        "C1"
+      ],
+      "status": "pending",
+      "note": "telemetry.sample() 仍返回硬编码常量；真实采集只在 lab_collector 一条支路"
+    },
+    {
+      "id": "C5-healing-real-action",
+      "title": "HealingAgent 真动作：动作串落成可执行命令 + 真验证",
+      "priority": "P1",
+      "depends_on": [
+        "C4"
+      ],
+      "status": "pending",
+      "note": "现在动作是字典里的中文描述串，不产生任何真实副作用"
+    },
+    {
+      "id": "C6-multi-tenant-min",
+      "title": "多租户最小实现：workspace 概念 + 按 workspace 过滤",
+      "priority": "P1",
+      "depends_on": [
+        "C1"
+      ],
+      "status": "pending",
+      "note": "全仓无 tenant 概念，单文件全局 STORE 意味着客户之间无数据边界"
+    },
+    {
+      "id": "C7-rbac-rate-limit",
+      "title": "RBAC 三档角色 + 每端点速率限制",
+      "priority": "P1",
+      "depends_on": [
+        "C1"
+      ],
+      "status": "pending",
+      "note": "SECURITY.md 自认「no rate limiting or per-endpoint RBAC」"
+    },
+    {
+      "id": "C8-self-observability",
+      "title": "自身可观测性：/healthz + /metrics + p99 延迟与错误率",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "pending",
+      "note": "项目能审计网络设备，却无法回答客户关于自己这条 SLO 的问题"
+    },
+    {
+      "id": "C9-frontend-tests",
+      "title": "App.jsx 按页拆分后补关键交互测试",
+      "priority": "P2",
+      "depends_on": [],
+      "status": "pending",
+      "note": "1844 行 / 43 组件，测试触达 0；当前唯一前端门是 npm run build（能编译≠行为正确）"
+    },
+    {
+      "id": "C10-supply-chain-3",
+      "title": "CI 补 dsh-compat / codeql / semgrep",
+      "priority": "P2",
+      "depends_on": [],
+      "status": "pending",
+      "note": "d2d 侧有，netmind 未配"
+    },
     {
       "id": "W2-lab-ci",
       "title": "实验台接入 CI 扩展检查（docker 可用时可实跑 lab.sh measure 并比对基线）",
@@ -465,6 +561,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-commercial-audit",
+      "title": "商用就绪度审计",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -590,6 +694,14 @@
       "shipped": "修 ssh_driver.collect()（把 netmiko device_type 当 napalm 驱动名的第二个副本）与映射表漏掉整套 netmiko 拼法。对真实容器（192.168.1.30:2222）跑通真下发：写入 /tmp/netmind-probe → 读回确认落到设备 → rm 回滚 → 确认失效。新增 8 个测试，全量 124→132。诚实表「Policy deployment on devices」升级为 ✅ Real。另建 docs/sbom-choice.md 记录 environment 与 requirements 两种写法的实测差别。",
       "at": "2026-10-02T23:36:06+08:00",
       "based_on": "862466f"
+    },
+    {
+      "cycle": 14,
+      "id": "W-commercial-audit",
+      "title": "商用就绪度审计",
+      "shipped": "docs/commercial-readiness-audit.md：20/55 后端源文件零测试触达（1005 行）、App.jsx 1844 行测试触达 0、全仓零压测、transaction.py 回滚逻辑零直接覆盖；诚实表 2 条仍 ⚠️（主链路遥测仍是硬编码常量、HealingAgent 动作不产生真实副作用）；四类商用硬门槛实测确认：默认配置 API 裸奔（GET 永久免认证）、无多租户无 RBAC 无速率限制、单 JSON 文件存储并发与恢复未验、无自身可观测性。结论：单机自用可以，团队内部接近，对外商业化不行，差 16-24 人日的工程距离（1-3 项为不修不能卖）。",
+      "at": "2026-10-03T00:41:38+08:00",
+      "based_on": "0e485f4"
     }
   ],
   "retro": [
@@ -828,13 +940,13 @@
   ],
   "gates_total": 18,
   "next_round": {
-    "id": "W2-multivendor",
-    "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
-    "why": "",
+    "id": "C1-auth-default-safe",
+    "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
+    "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
     "deliverable": "",
-    "planned_at": "2026-10-02T23:36:02+08:00"
+    "planned_at": "2026-10-03T00:41:33+08:00"
   },
-  "based_on": "0e485f4",
+  "based_on": "0b40287",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

@@ -4,6 +4,11 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- `docs/commercial-readiness-audit.md`：商用就绪度审计。结论——单机自用可以，团队内部接近，
+  **对外商业化不行**。列出 20/55 源文件零测试触达、零压测、四类商用硬门槛（默认 API 裸奔 /
+  无隔离无 RBAC / 单 JSON 存储并发恢复未验 / 无自身可观测性）与 16-24 人日的补齐清单
+- backlog 登记 10 条商用待办（C1-C10），其中 C1-C4 为「不修不能卖」
+
 - SBOM 写法选型记录（`docs/sbom-choice.md`）：实测 `cyclonedx-py environment` 与
   `requirements` 在 CI 那种「只装了扫描器、没装项目依赖」的干净环境下的差别。
   结论：前者退出码 0 但产物 50 个组件全是扫描器自己的传递依赖，**NetMind 依赖一个都没有**；
