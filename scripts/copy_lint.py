@@ -48,9 +48,10 @@ META_RE = re.compile(
     r'预计阅读时间|reading time|as an AI', re.IGNORECASE)
 
 # 装饰性 emoji：白名单只留功能性符号
-# ✅ ⚠️ ❌ 属于语义状态记号（诚实表的 Real / Simulated / Not implemented 三态），
-# 与 🚀✨ 这类装饰性 emoji 不同类，故列白名单。加白名单前先问：它承载语义还是纯装饰？
-FUNCTIONAL = set('→←↓↑✅⚠️❌✓✗')
+# ✅ ⚠️ ❌ 是语义状态记号（诚实表的 Real / Simulated / Not implemented 三态），
+# → ⇒ ⇔ 是技术文档里的推理符号（「A ⇒ B」）。它们与 🚀✨ 这类装饰性 emoji 不同类。
+# 加白名单前先问：它承载语义还是纯装饰？
+FUNCTIONAL = set('→←↓↑⇒⇔✅⚠️❌✓✗')
 EMOJI_RE = re.compile(
     '[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F02F'
     '\U00002190-\U000021FF\U00002B00-\U00002BFF\U0000FE0F]')

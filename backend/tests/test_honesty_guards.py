@@ -69,8 +69,12 @@ def test_auth_gate_when_token_configured(monkeypatch):
     assert denied.status_code == 401
     allowed=client.post('/api/config/reset-runtime', headers={'Authorization':'Bearer secret-token'})
     assert allowed.status_code == 200
-    read_open=client.get('/api/system/status')
-    assert read_open.status_code == 200
+    # 旧实现在这里断言「GET 免认证」返回 200——那正是漏洞：设了 token 也能
+    # 无凭据读走全部运行数据。新契约：配了 token 后所有方法都要认证。
+    read_no_cred=client.get('/api/system/status')
+    assert read_no_cred.status_code == 401
+    read_ok=client.get('/api/system/status', headers={'Authorization':'Bearer secret-token'})
+    assert read_ok.status_code == 200
 
 def test_cli_module_imports_and_reports_version(monkeypatch):
     monkeypatch.setenv('NETMIND_ADMIN_TOKEN','secret-token')

@@ -37,6 +37,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Read-only device collection / audit | ✅ Real — 能力矩阵见 `diagnose/vendor_matrix.py`（`GET /api/vendors`）；每家厂商带**验证等级**，未知型号**不猜驱动**、如实拒绝 |
 | Dependency vulnerabilities | ✅ 0 known (`pip-audit` + `npm audit`, both in CI) |
 | Frontend tests | ✅ 12 cases on extracted display helpers (node built-in runner, no test framework) |
+| Default security | ✅ Safe by default — no token ⇒ loopback-only (403); token ⇒ all methods incl. GET; `/healthz` public, `/metrics` authenticated |
+| Self observability | ✅ Real — `/healthz` + `/metrics` (p50/p95/p99 per endpoint, error counts) |
 
 ## Vendor support
 

@@ -3,8 +3,8 @@
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 14,
-  "phase": "plan",
-  "updated": "2026-10-03T00:41:59+08:00",
+  "phase": "test",
+  "updated": "2026-10-03T00:58:35+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,12 +20,12 @@
     }
   },
   "metrics": {
-    "tests_collected": 132,
+    "tests_collected": 147,
     "gates_total": 18,
-    "gates_passed": 18,
+    "gates_passed": 17,
     "gates_warned": 0,
-    "src_lines": 9238,
-    "generic_names": 174,
+    "src_lines": 9708,
+    "generic_names": 176,
     "dead_modules": 0,
     "slop_hits": 0,
     "license_present": true
@@ -224,7 +224,7 @@
     {
       "id": "no-ai-smell",
       "on_fail": "block",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "id": "no-dead-module",
@@ -242,7 +242,11 @@
       "status": "pass"
     }
   ],
-  "current_round": null,
+  "current_round": {
+    "id": "W-default-secure",
+    "title": "默认安全 + 自身可观测 + 测试可复现",
+    "deliverable": "默认不安全→默认安全：没配 token 改为只许本机（远程 403 并给出修复指引），配了 token 则所有方法含 GET 都须认证，/healthz 免认证、/metrics 需认证；token 改常数时间比对；不再默认采信 X-Forwarded-For 判 loopback；CORS 默认从 * 收紧到本地前端。新增 /healthz 与 /metrics 自身可观测性。另修一个先于本次改动就存在的真 bug：测试依赖 data/netmind_store.json 跨运行累积，单跑也失败——现每会话独立数据文件，连跑三次 147 passed。新增 15 个用例，全量 132→147。"
+  },
   "backlog": [
     {
       "id": "C1-auth-default-safe",
@@ -936,6 +940,22 @@
       "root_cause": "SBOM 门禁实跑 CI 里的 cyclonedx-py 命令，产物 backend/netmind-sbom.json 留在原地。更糟的是那个文件还在版本控制里（是我上上轮修 SBOM 时随命令一起带进来的），于是门禁每次跑都把工作树弄脏",
       "fix": "① 取消跟踪该文件（它是 CI artifact 不是源码）并加进 .gitignore ② 门禁改为跑完清理产物 ③ 教训：校验工具的副作用要和被验对象分开——它执行被验对象的命令，就继承了被验对象的副作用，得自己收拾",
       "at": "2026-10-02T23:42:02+08:00"
+    },
+    {
+      "cycle": 15,
+      "gate": "conftest(测试依赖外部可变状态)",
+      "on_fail": "manual",
+      "root_cause": "test_dangerous_commands_blocked_unless_registered_rollback 单跑也失败。根因：data/netmind_store.json 跨运行累积——上一轮测试把 cookie 0x...0001 登记进 STORE 并落盘，本轮启动读到它，「未登记」断言就变成「已登记」。测试在干净机器上绿、跑过一次的机器上红",
+      "fix": "① conftest 在导入 app 之前把 NETMIND_DATA_FILE 指到 per-session 临时目录 ② 连跑三次 147 passed 验证可复现 ③ 教训：测试依赖外部可变状态是隐形的定时炸弹——它不会一直坏，只在你跑第二次时炸，且报错指向业务逻辑，让人误以为是自己改坏了代码",
+      "at": "2026-10-03T00:53:36+08:00"
+    },
+    {
+      "cycle": 15,
+      "gate": "no-ai-smell",
+      "on_fail": "block",
+      "root_cause": "  ✓ docs/ARCHITECTURE.md\n  ✓ docs/API.md\n  ✓ SECURITY.md\n  ✓ CHANGELOG.md\n  ✓ docs/closed-loop-run-report.md\n  客户可见面 AI 味命中 2 项",
+      "fix": "待定——本轮不记根因的门禁会原样复现",
+      "at": "2026-10-03T00:54:44+08:00"
     }
   ],
   "gates_total": 18,
@@ -946,7 +966,7 @@
     "deliverable": "",
     "planned_at": "2026-10-03T00:41:33+08:00"
   },
-  "based_on": "0b40287",
+  "based_on": "482cd53",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
