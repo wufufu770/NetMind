@@ -4,6 +4,10 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- `docs/DEPLOY.md`：自托管部署指南。先决定访问边界 → 起服务 → **必须单 worker** →
+  数据在哪怎么保 → 对外暴露要点 → 探活 → 接真实设备 → 故障排查表。
+  每一节的关键命令都实测过
+
 - `scripts/load_test.py`：HTTP 层并发压测（读/写/混合/鉴权四类），输出 p50/p95/p99 与错误数，
   并校验压测后数据文件完好、零临时残留。基线见 `docs/load-test-baseline.md`
 - 门禁 `load-test-no-loss`：卡「零错误 + 数据不丢不坏」，**不卡延迟**（CI 上 p99 抖动大，
@@ -132,6 +136,8 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - 新门禁 `deps-pinned-and-audited`：依赖不得出现 `>=` / `^` 浮动范围
 
 ### Security
+- `docker-compose.yml` 补注释说明「token 留空 = 仅本机可访问」是安全默认值，
+  避免部署方误以为必须配或误配了空串
 - 依赖升级消除全部已知漏洞（`pip-audit` 与 `npm audit` 均 0）：fastapi 0.115.6→0.142.2（带 starlette 0.41.3→1.7.0，原有 19 条 CVE）、python-dotenv 1.0.1→1.2.2、pytest 8.3.4→9.0.3、langgraph 浮动→1.2.12、vite 8.0.13→8.3.2（连带修掉 nanoid/postcss 高危）
 
 ### Fixed
