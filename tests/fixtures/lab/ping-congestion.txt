@@ -1,0 +1,18 @@
+# state: congestion
+# captured: 2026-10-02T09:34:57Z from /home/wff/netmind lab (frrouting/frr:latest, docker bridge)
+
+PING 192.168.3.1 (192.168.3.1): 56 data bytes
+64 bytes from 192.168.3.1: seq=0 ttl=64 time=120.341 ms
+64 bytes from 192.168.3.1: seq=1 ttl=64 time=120.508 ms
+64 bytes from 192.168.3.1: seq=2 ttl=64 time=120.388 ms
+64 bytes from 192.168.3.1: seq=3 ttl=64 time=120.408 ms
+64 bytes from 192.168.3.1: seq=4 ttl=64 time=120.253 ms
+64 bytes from 192.168.3.1: seq=5 ttl=64 time=120.303 ms
+64 bytes from 192.168.3.1: seq=6 ttl=64 time=120.257 ms
+64 bytes from 192.168.3.1: seq=7 ttl=64 time=120.269 ms
+64 bytes from 192.168.3.1: seq=8 ttl=64 time=120.236 ms
+64 bytes from 192.168.3.1: seq=9 ttl=64 time=120.413 ms
+
+--- 192.168.3.1 ping statistics ---
+10 packets transmitted, 10 packets received, 0% packet loss
+round-trip min/avg/max = 120.236/120.337/120.508 ms

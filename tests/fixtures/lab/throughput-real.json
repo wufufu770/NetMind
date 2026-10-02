@@ -1,0 +1,11 @@
+{
+  "_note": "真实网卡计数器测得（/sys/class/net/eth0/statistics/rx_bytes 差分 / 墙钟），非估算。ping 洪泛造负载。",
+  "_captured": "2026-10-02T17:40:00Z",
+  "_lab": "client1(192.168.1.10) -> r1 -> r2 -> 192.168.3.1，两跳 L3，frrouting/frr:latest",
+  "states": {
+    "healthy":    {"throughput_mbps": 21.08, "rtt_avg_ms": 0.171, "loss_ratio": 0.0,  "injection": "none"},
+    "delay_only": {"throughput_mbps": 18.66, "rtt_avg_ms": 120.337, "loss_ratio": 0.0, "injection": "tc netem delay 120ms（未限速）"},
+    "rate_limited": {"throughput_mbps": 4.01, "rtt_avg_ms": 120.4, "loss_ratio": 0.0, "injection": "tc netem delay 120ms rate 5mbit"}
+  },
+  "key_finding": "delay_only 态：延迟 120ms 但带宽 18.66Mbps（与健康态 21.08 接近，未被压低）。core/telemetry.py 的拥塞规则要求 throughput_mbps < 60，这是绝对阈值——在高速链路（如 10Gbps）上同条件会判为 normal 漏判。真实数据下延迟升高与带宽受限是两件独立的事，规则把二者绑在一起是错的。"
+}

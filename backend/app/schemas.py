@@ -106,7 +106,9 @@ class TelemetrySnapshot(BaseModel):
     src: str = 'teacher_terminal'
     dst: str = 'meeting_server'
     alert: bool = False
-    source: Literal['simulated','driver','synthetic'] = 'simulated'
+    # 'real'/'lab' 是实测来源。此前 Literal 只列了模拟侧，导致真实采集的数据
+    # 在 schema 层就存不进来——想用真数据做测试，第一道门就卡住。
+    source: Literal['simulated','driver','synthetic','real','lab'] = 'simulated'
 
 class Diagnosis(BaseModel):
     type: Literal['congestion','link_down','anomaly_traffic','config_error','normal'] = 'normal'

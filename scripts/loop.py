@@ -254,6 +254,15 @@ def cmd_state(st: dict) -> int:
     if not cr:
         print('  ⚠ 无 current_round，无法落盘——先跑 plan')
         return 1
+    # 空轮守卫：协议要求「每轮产出可验证的增量」。
+    # 不用工作树有无改动来判——修文档、补 retro 也会产生 diff，但那是上一轮的事；
+    # 而且暂存不等于本轮产出。改为硬性要求 BUILD 阶段声明 deliverable。
+    if not str(cr.get('deliverable', '')).strip():
+        print('\n  ⛔ 拒绝落盘：本轮未声明 deliverable')
+        print('     门禁全绿不等于有产出——修文档/补 retro 也能让门禁变绿，但那是上一轮的事。')
+        print('     请在 state.json 的 current_round.deliverable 写明本轮实际交付了什么；')
+        print('     确为空轮收尾就如实写「无产出」并说明原因，别记成正常轮次。')
+        return 1
     st['cycle'] += 1
     st['metrics'].update(compute_metrics())
     st['metric_history'].append({'cycle': st['cycle'], **st['metrics']})

@@ -2,10 +2,10 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 2,
-  "phase": "build",
-  "updated": "2026-10-02T17:09:16+08:00",
-  "head": "aa30fe9",
+  "cycle": 4,
+  "phase": "plan",
+  "updated": "2026-10-02T17:43:51+08:00",
+  "head": "0dfa174",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -21,11 +21,11 @@
     }
   },
   "metrics": {
-    "tests_passed": 75,
-    "gates_total": 8,
-    "gates_passed": 8,
+    "tests_passed": 87,
+    "gates_total": 9,
+    "gates_passed": 9,
     "gates_warned": 0,
-    "src_lines": 7201,
+    "src_lines": 7549,
     "generic_names": 167,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -51,6 +51,30 @@
       "gates_passed": 8,
       "gates_warned": 0,
       "src_lines": 7190,
+      "generic_names": 167,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 3,
+      "tests_passed": 86,
+      "gates_total": 8,
+      "gates_passed": 9,
+      "gates_warned": 0,
+      "src_lines": 7536,
+      "generic_names": 167,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 4,
+      "tests_passed": 87,
+      "gates_total": 9,
+      "gates_passed": 9,
+      "gates_warned": 0,
+      "src_lines": 7549,
       "generic_names": 167,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -101,6 +125,14 @@
   ],
   "current_round": null,
   "backlog": [
+    {
+      "id": "W2-lab-ci",
+      "title": "实验台接入 CI 扩展检查（docker 可用时可实跑 lab.sh measure 并比对基线）",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "pending",
+      "note": "当前 real-data-not-faked 门禁只校验 fixture 特征。CI runner 有 docker，可进一步在 CI 里真起实验台重采一次并与 fixture 比对——防 fixture 老化"
+    },
     {
       "id": "W0-copy-lint",
       "title": "去 AI 味密度门接 CI",
@@ -285,6 +317,24 @@
       "shipped": "core/config_diff.py 纯函数：结构化 diff（增/删/改/不变）+ 危险项前置标注 + 可评审 Markdown 渲染；8 个测试；README 诚实表新增两行（config-diff 标 Real、post-apply 验证标 Not implemented）；CHANGELOG [Unreleased] 补记",
       "at": "2026-10-02T17:07:24+08:00",
       "head": "aa30fe9"
+    },
+    {
+      "cycle": 3,
+      "id": "W2-realdatalab",
+      "title": "真实数据实验台：把遥测从硬编码常量换成实测",
+      "shipped": "scripts/lab.sh（docker 起双 FRR + 客户端，布真两跳 L3，可注 netem 拥塞与断链）· diagnose/lab_collector.py（解析真实 ICMP 报文与网卡计数器）· tests/fixtures/lab/（三态抓包原文 + 实测带宽 JSON）· test_real_lab.py（11 个基于真实抓取的回归）· 修 telemetry.py 硬编码置信度（违反规则 2）与绝对 Mbps 阈值 · schemas.py 开放 source 的 real/lab 取值 · 新增 real-data-not-faked 门禁",
+      "at": "2026-10-02T17:55:00+08:00",
+      "head": "0dfa174",
+      "plan_deviation": "本轮 plan 选的是 W2-multivendor（三厂商真实接入），实际做的是真实数据实验台。偏离理由：先要有可测的真实拓扑，才谈得上验证三厂商；且调研发现的「置信度是编造常量」这一缺陷必须用真数据才能证实，模拟器造不出证据。W2-multivendor 保持 pending 未动。"
+    },
+    {
+      "cycle": 4,
+      "id": "NOOP-r4",
+      "title": "空轮：仅做记录更正与门禁复跑，无新交付",
+      "shipped": "",
+      "at": "2026-10-02T18:00:00+08:00",
+      "head": "0dfa174",
+      "note": "协议要求「每轮产出可验证的增量」。本轮是把轮3 的留档按实更正（plan 选的是 W2-multivendor、实做的是真实数据实验台）、补记两条 retro、再跑一次门禁确认，**没有新的可验证增量**。按纪律如实记为空轮，不冒充 W2-multivendor。W2-multivendor 保持 pending。"
     }
   ],
   "retro": [
@@ -391,14 +441,54 @@
       "root_cause": "PLAN 阶段在 STATE 之前跑，而 STATE 才把当前轮标 done，于是 pick_next 把本轮正在做的项又选成下一轮",
       "fix": "① pick_next 显式排除 st.current_round.id ② 教训：跨阶段的读写顺序要画清楚——「什么时候标 done」决定了「谁能被选中」",
       "at": "2026-10-02T17:08:18+08:00"
+    },
+    {
+      "cycle": 3,
+      "gate": "no-ai-smell",
+      "on_fail": "block",
+      "root_cause": "  ✓ docs/ARCHITECTURE.md\n  ✓ docs/API.md\n  ✓ SECURITY.md\n  ✗ CHANGELOG.md\n      [NUM]:13 无源数字「120ms」需挂命令/报告/链接\n  客户可见面 AI 味命中 1 项",
+      "fix": "待定——本轮不记根因的门禁会原样复现",
+      "at": "2026-10-02T17:41:06+08:00"
+    },
+    {
+      "cycle": 3,
+      "gate": "no-ai-smell(自纠)",
+      "on_fail": "manual",
+      "root_cause": "我在 CHANGELOG 里写「注入 120ms 延迟不限速时带宽 18.66Mbps」却没挂任何证据路径，被自己的门禁按无源数字拦下",
+      "fix": "① 补上 tests/fixtures/lab/throughput-real.json 与 scripts/lab.sh measure 两条可复现引用 ② 值得记的是这条门禁第一次拦下的是我自己写的文案——说明它不是摆设",
+      "at": "2026-10-02T17:41:14+08:00"
+    },
+    {
+      "cycle": 3,
+      "gate": "no-ai-smell",
+      "on_fail": "block",
+      "root_cause": "  ✓ docs/ARCHITECTURE.md\n  ✓ docs/API.md\n  ✓ SECURITY.md\n  ✗ CHANGELOG.md\n      [NUM]:13 无源数字「120ms」需挂命令/报告/链接\n  客户可见面 AI 味命中 1 项",
+      "fix": "待定——本轮不记根因的门禁会原样复现",
+      "at": "2026-10-02T17:41:19+08:00"
+    },
+    {
+      "cycle": 4,
+      "gate": "loop-round(计划偏离)",
+      "on_fail": "manual",
+      "root_cause": "轮3 plan 选的是 W2-multivendor，实际做的是真实数据实验台，rounds 留档却记了 plan 选的 id——留档与实交付不符",
+      "fix": "① 轮次 id 按实际交付改记为 W2-realdatalab ② 增设 plan_deviation 字段记录偏离理由 ③ W2-multivendor 保持 pending 未动 ④ 教训：rounds 记的是'做了什么'，不是'打算做什么'；两者不一致时必须显式记偏离，不能改标签假装一致",
+      "at": "2026-10-02T17:41:57+08:00"
+    },
+    {
+      "cycle": 5,
+      "gate": "loop-round(空轮)",
+      "on_fail": "manual",
+      "root_cause": "重跑 round 把一轮没有任何可验证增量的收尾也记成了正常轮次，留档 id 写的是 plan 选的 W2-multivendor，等于用记录掩盖了「这轮没干活」",
+      "fix": "① 轮4 如实标为 NOOP-r4 空轮，shipped 留空并写明原因 ② W2-multivendor 保持 pending ③ 教训：落盘是循环的最后一环，门槛不该只有「门禁绿」——还须有本轮实际改动，否则就该拒绝落盘而不是记一个空轮",
+      "at": "2026-10-02T17:43:13+08:00"
     }
   ],
-  "gates_total": 8,
+  "gates_total": 9,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T17:08:19+08:00"
+    "planned_at": "2026-10-02T17:43:02+08:00"
   }
 }

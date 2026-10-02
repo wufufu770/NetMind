@@ -102,6 +102,40 @@ assert _dead_modules() == [], '零引用死模块: ' + ', '.join(_dead_modules()
 """,
     ),
     Gate(
+        id='real-data-not-faked',
+        desc='真实数据通道未被退回模拟（fixture 存在且含真实采集特征）',
+        on_fail='block',
+        check="""
+import json
+from pathlib import Path
+lab = ROOT / 'tests' / 'fixtures' / 'lab'
+need = ['ping-healthy.txt', 'ping-congestion.txt', 'ping-link_down.txt', 'throughput-real.json']
+missing = [n for n in need if not (lab / n).exists()]
+assert not missing, '缺少真实数据 fixture: ' + ', '.join(missing) + '（tests/fixtures/lab/）'
+
+# 真抓包必然带这些特征；手写的样例不会
+h = (lab / 'ping-healthy.txt').read_text(encoding='utf-8')
+assert 'bytes from' in h, 'ping-healthy.txt 不含真实回包行，疑似手写样例'
+assert re.search(r'round-trip min/avg/max', h), 'ping-healthy.txt 无 round-trip 统计行'
+
+# 断链态的真实特征：0 回包且完全没有 round-trip 行（模拟器遇不到这个形态）
+d = (lab / 'ping-link_down.txt').read_text(encoding='utf-8')
+assert 'bytes from' not in d, '断链态不应有回包行'
+assert 'round-trip' not in d, '断链态不应有 round-trip 行——若存在说明 fixture 被伪造'
+
+j = json.loads((lab / 'throughput-real.json').read_text(encoding='utf-8'))
+states = j.get('states', {})
+assert {'healthy', 'delay_only', 'rate_limited'} <= set(states), '带宽 fixture 缺少关键状态'
+assert states['delay_only']['throughput_mbps'] > 0, '延迟态带宽须为真实正值而非 0'
+assert states['healthy']['rtt_avg_ms'] < states['delay_only']['rtt_avg_ms'], \\
+    '延迟态 RTT 应大于健康态，否则采集根本没生效'
+
+# 采集器必须真的接在 schema 上，否则真实数据存不进来
+sc = (ROOT / 'backend' / 'app' / 'schemas.py').read_text(encoding='utf-8')
+assert "'real'" in sc or '"real"' in sc, 'TelemetrySnapshot.source 未开放 real 取值——真实数据在 schema 层会被拒'
+""",
+    ),
+    Gate(
         id='ci-security-gates',
         desc='CI 具备依赖漏洞扫描（pip-audit / npm audit）',
         on_fail='warn',
