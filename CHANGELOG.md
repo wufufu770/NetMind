@@ -4,6 +4,16 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- Linux/FRR 系设备的只读采集走 netmiko 直连（`diagnose/linux_collect.py`）。napalm 5.2 核心驱不了这类设备，而实验台拓扑正是这类型——原实现只挂了 napalm 一条路，导致诚实表的「read-only collection ✅ Real」对 Linux/FRR 从来不成立。现实测可采到真实接口状态/路由表/uptime
+- 显式驱动映射（`diagnose/drivers.py`）：未知 kind 不再静默兜底成 Arista EOS
+- `requirements-drivers.txt` 补可选插件 `napalm-nokia` / `napalm-srl`（此前映射表列了这两个驱动但依赖里从未声明，永远走不通）
+- 真实采集结果 fixture `tests/fixtures/lab/live-collection.json`（真 SSH 端点，含正例与两个反例）
+
+### Fixed
+- **驱动映射三处错误**：① 映射到 napalm 不存在的 `'linux'`（所有 Linux/FRR 设备必然 ModuleImportError，而错误被混进 errors 看起来像「设备连不上」）② 兜底 `'else eos'` 把任何未知型号当 Arista 下命令 ③ `nokia`/`srl` 两个驱动在声明依赖下永远不可用
+- 采集回来的用法/报错文本不再当作数据存储：BusyBox 的 `ip` 不认 `-br`，会把用法说明打回来，此前被原样收进结果——「看起来有数据其实是报错」的污染最难发现
+- `send_command(strip=True)` 是 napalm 签名，netmiko 的 `BaseConnection` 不收（实测 TypeError）
+
 - 真实 FRR/zebra 路由表 fixture（`frr-routing-table.txt` / `frr-routing-table-r1.txt`），补上此前缺失的路由数据维度
 - 新门禁 `routing-data-is-real`：校验路由 fixture 含真实路由行、且记录了 zebra 对 `SYS_ADMIN` 的依赖
 - `scripts/lab.sh measure` 增加 FRR 守护进程状态与真实路由表输出

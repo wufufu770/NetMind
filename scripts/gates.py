@@ -165,6 +165,49 @@ assert neg[0]['verified'] is True, '反例应已重测，verified 应为 True'
 """,
     ),
     Gate(
+        id='collection-not-guessed',
+        desc='设备采集不得猜驱动；未知型号须明确拒绝（诚实表承诺 Real 的能力要有据）',
+        on_fail='block',
+        check=r"""
+import json, sys
+from pathlib import Path as P
+
+# 1) 行为判定，不做源码文本匹配：匹配源码会命中文档里描述旧 bug 的那段话，
+#    反而误报。直接调用函数看行为——单元测试之外的第二道网。
+sys.path.insert(0, str(ROOT / 'backend'))
+from app.diagnose.drivers import pick_driver          # noqa: E402
+for bad_kind in ('vyos', 'mikrotik', 'huawei', 'paloalto', 'unknown-xyz'):
+    name, reason = pick_driver(bad_kind)
+    assert name != 'eos', f'{bad_kind} 被兜底成 eos——会把未知型号当 Arista 下命令'
+    assert reason, f'{bad_kind} 拒绝映射时必须给出原因'
+for linux_kind in ('linux', 'alpine', 'frr', 'debian'):
+    name, reason = pick_driver(linux_kind)
+    assert name is None, f'{linux_kind} 不该被映射到 {name}（napalm 无此驱动）'
+    assert 'napalm' in reason, f'{linux_kind} 应归入「Linux 系 napalm 驱不了」: {reason}'
+
+# 2) 必须有 Linux/FRR 的第二条采集路径（napalm 驱不了这类型）
+assert (P('backend/app/diagnose/linux_collect.py')).exists(), \
+    '缺 Linux/FRR 的 netmiko 直连采集路径——实验台拓扑全是这类设备'
+
+# 3) 声明了 nokia/srl 映射，就必须声明对应插件依赖
+reqs = (P('backend/requirements-drivers.txt')).read_text(encoding='utf-8')
+for pkg in ('napalm-nokia', 'napalm-srl'):
+    assert pkg in reqs, f'{pkg} 在映射表里被引用但依赖里未声明——永远走不通'
+
+# 4) 真实采集 fixture 必须真的采到东西，且含拒绝反例
+fx = P('tests/fixtures/lab/live-collection.json')
+assert fx.exists(), '缺 live-collection.json（真实 SSH 采集结果）'
+d = json.loads(fx.read_text(encoding='utf-8'))
+col = d.get('collected') or {}
+assert col, 'fixture 里没有采到任何节点——只报失败的话不等于能力可用'
+for nid, node in col.items():
+    vals = [v for v in (node.get('collected') or {}).values() if v]
+    assert vals, f'{nid} 采集项全为空'
+errs = ' '.join(d.get('errors') or [])
+assert '不猜' in errs, 'fixture 缺「未知型号被拒绝」的反例——只有成功案例证明不了不猜'
+""",
+    ),
+    Gate(
         id='routing-data-is-real',
         desc='路由数据来自真 zebra 而非推断（fixture 含真实路由行且记录了 SYS_ADMIN 依赖）',
         on_fail='block',

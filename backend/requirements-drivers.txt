@@ -2,3 +2,9 @@ napalm>=4.1,<6
 netmiko>=4.3,<5
 ncclient>=0.6.13,<1
 paramiko>=3.4,<4
+
+# 非核心驱动（可选）：不装则 vr-sros / srl 节点的采集会如实报「驱动不可用」，
+# 而不是静默兜底成 Arista EOS。装了才启用对应映射。
+# 见 app/diagnose/drivers.py
+napalm-nokia>=1.0 ; extra == "drivers-nokia"
+napalm-srl>=1.0 ; extra == "drivers-srl"

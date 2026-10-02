@@ -2,10 +2,10 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 7,
+  "cycle": 8,
   "phase": "plan",
-  "updated": "2026-10-02T21:50:55+08:00",
-  "head": "6d01598",
+  "updated": "2026-10-02T22:11:42+08:00",
+  "head": "9a60681",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -21,12 +21,12 @@
     }
   },
   "metrics": {
-    "tests_passed": 95,
-    "gates_total": 12,
-    "gates_passed": 13,
+    "tests_passed": 111,
+    "gates_total": 13,
+    "gates_passed": 14,
     "gates_warned": 0,
-    "src_lines": 8031,
-    "generic_names": 167,
+    "src_lines": 8452,
+    "generic_names": 174,
     "dead_modules": 0,
     "slop_hits": 0,
     "license_present": true
@@ -112,6 +112,18 @@
       "gates_warned": 0,
       "src_lines": 8031,
       "generic_names": 167,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 8,
+      "tests_passed": 111,
+      "gates_total": 13,
+      "gates_passed": 14,
+      "gates_warned": 0,
+      "src_lines": 8452,
+      "generic_names": 174,
       "dead_modules": 0,
       "slop_hits": 0,
       "license_present": true
@@ -342,6 +354,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-driver-truth",
+      "title": "把「只读设备采集 ✅ Real」验成真的",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -419,6 +439,14 @@
       "shipped": "Python 3.10 容器全量 95 passed（CI 矩阵三格全齐）。真实 FRR/zebra 路由表 fixture 两条，含 K/C/S 真实路由行。修 lab.sh 三个自埋 bug：缺 SYS_ADMIN 致 zebra 静默失败、客户端 IP 冲突、set -e 致全断场景测不出来。新门禁 routing-data-is-real。报告与诚实表已更正「zebra 未起」的说法。",
       "at": "2026-10-02T21:50:55+08:00",
       "head": "6d01598"
+    },
+    {
+      "cycle": 8,
+      "id": "W-driver-truth",
+      "title": "把「只读设备采集 ✅ Real」验成真的",
+      "shipped": "对着真实 SSH 端点（linuxserver/openssh-server 容器）跑通 NetMind 自己的采集路径，抓到驱动映射三处错误并修掉：映射到 napalm 不存在的 linux 驱动、未知 kind 静默兜底成 Arista EOS、nokia/srl 两个驱动在声明依赖下永远不可用。新增 netmiko 直连路径（linux_collect.py）使 Linux/FRR 设备的只读采集真正成立。修用法文本被当数据存储、send_command 签名不兼容。新增 21 个测试，真实采集结果固化为 fixture。",
+      "at": "2026-10-02T22:11:42+08:00",
+      "head": "9a60681"
     }
   ],
   "retro": [
@@ -599,12 +627,12 @@
       "at": "2026-10-02T21:50:35+08:00"
     }
   ],
-  "gates_total": 13,
+  "gates_total": 14,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T21:50:55+08:00"
+    "planned_at": "2026-10-02T22:11:41+08:00"
   }
 }

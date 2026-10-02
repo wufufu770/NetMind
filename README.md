@@ -34,7 +34,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Real LLM calls | ✅ Real (API key required) |
 | Topology & telemetry data | ⚠️ Simulated generator |
 | Policy deployment on devices | ⚠️ Dry-run by default; real SSH/NETCONF behind `NETMIND_ENABLE_REAL_COMMANDS=true` |
-| Read-only device collection / audit | ✅ Real via netmiko / napalm / ncclient (`requirements-drivers.txt`) |
+| Read-only device collection / audit | ✅ Real — napalm（eos/junos/ios/nxos 系）+ netmiko 直连（Linux/FRR 系）；未知型号**不猜驱动**，如实拒绝 (`diagnose/drivers.py` / `linux_collect.py`，21 tests) |
 | Dependency vulnerabilities | ✅ 0 known (`pip-audit` + `npm audit`, both in CI) |
 | Frontend tests | ✅ 12 cases on extracted display helpers (node built-in runner, no test framework) |
 

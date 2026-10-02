@@ -1,0 +1,23 @@
+{
+  "_note": "真实 SSH 采集结果。dev1 是 linuxserver/openssh-server 容器，走 netmiko device_type='linux'；r1 是 FRR 却声明 kind=ceos，napalm 真的去连 EOS eAPI 并如实报拒绝；weird 是未知 kind，未被猜测驱动。",
+  "_collected_at": "2026-10-02",
+  "_endpoints": {
+    "dev1": "192.168.1.30:2222 (SSH, netmiko/linux)"
+  },
+  "collected": {
+    "dev1": {
+      "host": "192.168.1.30",
+      "port": 2222,
+      "transport": "netmiko/linux",
+      "collected": {
+        "interfaces": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n       valid_lft forever preferred_lft forever\n    inet6 ::1/128 scope host \n       valid_lft forever preferred_lft forever\n2: eth0@if92: <BROADCAST,MULTICAST,UP,LOWER_UP,M-DOWN> mtu 1500 qdisc noqueue state UP \n    link/ether 46:21:48:a8:7f:06 brd ff:ff:ff:ff:ff:ff\n    inet 192.168.1.30/24 brd 192.168.1.255 scope global eth0\n       valid_lft forever preferred_lft forever",
+        "routes": "default via 192.168.1.1 dev eth0 \n192.168.1.0/24 dev eth0 scope link  src 192.168.1.30",
+        "uptime": "76713.04 587679.15"
+      }
+    }
+  },
+  "errors": [
+    "r1 (192.168.1.2, eos): ConnectionError: Socket error during eAPI connection: [Errno 111] Connection refused",
+    "weird (192.168.1.31): 未识别的 kind=vyos；不猜驱动。已知: arista, ceos, crpd, eos, junos, srl, vjunosswitch, vr-sros, vr-vmx"
+  ]
+}
