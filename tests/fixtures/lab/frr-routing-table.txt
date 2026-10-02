@@ -1,0 +1,14 @@
+# 真实 FRR/zebra 路由表，采自活实验台
+# 采集: 2026-10-02T13:47:53Z · r2 (FRR 8.4_git)
+# 注: zebra 需要 --cap-add=SYS_ADMIN 才起得来，缺了会静默失败
+
+Codes: K - kernel route, C - connected, S - static, R - RIP,
+       O - OSPF, I - IS-IS, B - BGP, E - EIGRP, N - NHRP,
+       T - Table, v - VNC, V - VNC-Direct, A - Babel, F - PBR,
+       f - OpenFabric,
+       > - selected route, * - FIB route, q - queued, r - rejected, b - backup
+       t - trapped, o - offload failure
+
+C>* 192.168.1.0/24 is directly connected, eth0, 00:01:04
+C>* 192.168.2.0/24 is directly connected, eth1, 00:00:13
+C>* 192.168.3.0/24 is directly connected, eth1, 00:00:13

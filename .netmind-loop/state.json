@@ -2,10 +2,10 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 6,
+  "cycle": 7,
   "phase": "plan",
-  "updated": "2026-10-02T21:42:25+08:00",
-  "head": "8c8ae00",
+  "updated": "2026-10-02T21:50:55+08:00",
+  "head": "6d01598",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -23,9 +23,9 @@
   "metrics": {
     "tests_passed": 95,
     "gates_total": 12,
-    "gates_passed": 12,
+    "gates_passed": 13,
     "gates_warned": 0,
-    "src_lines": 8010,
+    "src_lines": 8031,
     "generic_names": 167,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -99,6 +99,18 @@
       "gates_passed": 12,
       "gates_warned": 0,
       "src_lines": 8010,
+      "generic_names": 167,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 7,
+      "tests_passed": 95,
+      "gates_total": 12,
+      "gates_passed": 13,
+      "gates_warned": 0,
+      "src_lines": 8031,
       "generic_names": 167,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -322,6 +334,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-matrix-310-routing",
+      "title": "补齐 CI 矩阵（py3.10）+ 真实路由数据 + 修 lab.sh 三个自埋 bug",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -391,6 +411,14 @@
       "shipped": "全量矩阵（对齐 CI 定义的执行面）：后端 3.11/3.12 各 95 passed、前端 npm test 12 passed、npm run build 通过、validate_project 27 项 exit 0、pip-audit 0 漏洞、npm audit 0 漏洞。依赖升级消除全部已知漏洞（starlette 19 条 CVE + nanoid/postcss 高危）。前端首次有测试：抽出 lib/format.js + 12 用例，App.jsx 改为 import（否则测的是副本）。修 validate_project 在新版 FastAPI 上抛 AttributeError、compactLabel 占位符失效、CliRunner mix_stderr 在 click 8.2+ 已移除。新门禁 frontend-has-tests / deps-pinned-and-audited。",
       "at": "2026-10-02T21:41:48+08:00",
       "head": "d8d423f"
+    },
+    {
+      "cycle": 7,
+      "id": "W-matrix-310-routing",
+      "title": "补齐 CI 矩阵（py3.10）+ 真实路由数据 + 修 lab.sh 三个自埋 bug",
+      "shipped": "Python 3.10 容器全量 95 passed（CI 矩阵三格全齐）。真实 FRR/zebra 路由表 fixture 两条，含 K/C/S 真实路由行。修 lab.sh 三个自埋 bug：缺 SYS_ADMIN 致 zebra 静默失败、客户端 IP 冲突、set -e 致全断场景测不出来。新门禁 routing-data-is-real。报告与诚实表已更正「zebra 未起」的说法。",
+      "at": "2026-10-02T21:50:55+08:00",
+      "head": "6d01598"
     }
   ],
   "retro": [
@@ -561,14 +589,22 @@
       "root_cause": "零引用死模块: backend/app/diagnose/lab_adapter.py",
       "fix": "待定——本轮不记根因的门禁会原样复现",
       "at": "2026-10-02T17:53:26+08:00"
+    },
+    {
+      "cycle": 7,
+      "gate": "lab.sh(三个自埋 bug)",
+      "on_fail": "manual",
+      "root_cause": "让 lab.sh 从零跑（此前都是我手工敲 docker 命令，脚本本身从没被完整执行过）后暴露三个 bug：① 缺 --cap-add=SYS_ADMIN，zebra 静默起不来——watchfrr 照常拉起 staticd，但 /var/run/frr 下只有 staticd.vty 没有 zebra.vty，vtysh 只报「zebra is not running」不透露真因，真因是 privs_init: cap_set_proc failed ② 客户端循环给两个容器都分配 192.168.1.10（Address already in use）③ 脚本头 set -euo pipefail 碰上 ping 在 100% 丢包时的非零退出码会当场退出——而「全断」恰恰是它最该测出来的场景，等于测不到自己要测的东西",
+      "fix": "① 三个都修：加 SYS_ADMIN、循环按序号取 IP、probe 吞掉 ping 退出码但保留输出并让判定看报文不看退出码 ④ 教训：脚本没被真正执行过就等于没写；我之前一直在手工跑等价命令，脚本里的错误被手工步骤掩盖了",
+      "at": "2026-10-02T21:50:35+08:00"
     }
   ],
-  "gates_total": 12,
+  "gates_total": 13,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T21:41:47+08:00"
+    "planned_at": "2026-10-02T21:50:55+08:00"
   }
 }

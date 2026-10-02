@@ -4,6 +4,16 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- 真实 FRR/zebra 路由表 fixture（`frr-routing-table.txt` / `frr-routing-table-r1.txt`），补上此前缺失的路由数据维度
+- 新门禁 `routing-data-is-real`：校验路由 fixture 含真实路由行、且记录了 zebra 对 `SYS_ADMIN` 的依赖
+- `scripts/lab.sh measure` 增加 FRR 守护进程状态与真实路由表输出
+
+### Fixed
+- `scripts/lab.sh` 三个自埋的 bug（此前一直手工敲等价 docker 命令，脚本本身从未被完整执行过）：
+  ① 缺 `--cap-add=SYS_ADMIN`，zebra 静默起不来——watchfrr 照常拉起 staticd，但 zebra 进程不出现，vtysh 只报「zebra is not running」，真因 `privs_init: cap_set_proc failed` 藏在别处
+  ② 客户端循环给两个容器都分配 `192.168.1.10`
+  ③ `set -euo pipefail` 碰上 ping 在 100% 丢包时的非零退出码会当场退出——而「全断」恰恰是最该测出来的场景
+
 - 前端首次有测试：`frontend/src/lib/format.js` + 12 个用例（node 内置 runner，零依赖）。此前 `package.json` 连 test 脚本都没有，CI 只 build 不 test
 - CI 的 `frontend-build` job 补上 `npm test`
 - 新门禁 `frontend-has-tests`：校验 test 脚本存在、测试文件存在、**且 App.jsx 真的 import 了被测模块**（否则测的是副本不是运行的那份）

@@ -21,6 +21,7 @@ set -euo pipefail
 LAB_SW1=nm-sw1
 LAB_R2NET=nm-r2net
 CLIENT1_IP=192.168.1.10
+CLIENT2_IP=192.168.1.11
 R1_SW1=192.168.1.2
 R2_SW1=192.168.1.3
 R1_R2NET=192.168.2.2
@@ -33,23 +34,27 @@ up() {
   docker network create --driver bridge --subnet 192.168.2.0/24 --gateway 192.168.2.1 "$LAB_R2NET" >/dev/null
 
   # --sysctl 必须在启动时注入：FRR 镜像的 /proc/sys 是只读的，运行期改不了
-  # --cap-add 是必须的：没有 NET_ADMIN 加不了地址、路由，注不了 tc 故障
+  # --cap-add NET_ADMIN/RAW：加地址路由、注 tc 故障需要
+  # --cap-add SYS_ADMIN：zebra 启动时做 cap_set_proc 必须要它。缺了会静默失败——
+  #   watchfrr 照常起 staticd，但 zebra 进程不出现，/var/run/frr 下只有 staticd.vty
+  #   没有 zebra.vty，vtysh 报 "zebra is not running" 却查不出真正原因。
   for n in r1 r2; do
     ip=$([ "$n" = r1 ] && echo "$R1_SW1" || echo "$R2_SW1")
     docker run -d --name "nm-$n" --hostname "$n" --network "$LAB_SW1" --ip "$ip" \
-      --sysctl net.ipv4.ip_forward=1 --cap-add=NET_ADMIN --cap-add=NET_RAW \
+      --sysctl net.ipv4.ip_forward=1 \
+      --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SYS_ADMIN \
       frrouting/frr:latest >/dev/null
   done
   docker network connect --ip "$R1_R2NET" "$LAB_R2NET" nm-r1
   docker network connect --ip "$R2_R2NET" "$LAB_R2NET" nm-r2
 
+  # client1 / client2 的地址不同，循环里必须按序号取，不能两个都给 CLIENT1_IP
   for c in 1 2; do
+    cip=$([ "$c" = 1 ] && echo "$CLIENT1_IP" || echo "$CLIENT2_IP")
     docker run -d --name "nm-client$c" --hostname "client$c" --network "$LAB_SW1" \
-      --ip "$CLIENT1_IP" --cap-add=NET_ADMIN --cap-add=NET_RAW alpine:3.19 sleep 1d >/dev/null
+      --ip "$cip" --cap-add=NET_ADMIN --cap-add=NET_RAW alpine:3.19 sleep 1d >/dev/null
   done
-  docker network disconnect "$LAB_SW1" nm-client2 2>/dev/null || true
-  docker network connect --ip 192.168.1.11 "$LAB_SW1" nm-client2
-  sleep 1
+  sleep 4   # 等 FRR 的 watchfrr 把 zebra 拉起来
 
   # 远端段挂 r2 的跨段口——挂在 r1 自己的口上会让流量不出该段，测不到真路由
   docker exec nm-r2 ip addr add "$FAR_SEG/24" dev eth1
@@ -60,8 +65,11 @@ up() {
 }
 
 # 采一次真实 ping，输出原始报文（供解析，不在此处做判定）
+# ping 在 100% 丢包时退出码非 0。脚本头是 set -euo pipefail，直接跑会在
+# 「全断」这个最该测出来的场景上当场退出——测不到自己要测的东西。
+# 这里吞掉退出码但保留全部输出；判定交给调用方看报文，不看退出码。
 probe() {
-  docker exec nm-client1 ping -c "${PING_COUNT:-10}" -i 0.2 -W 2 "$FAR_SEG" 2>&1
+  docker exec nm-client1 ping -c "${PING_COUNT:-10}" -i 0.2 -W 2 "$FAR_SEG" 2>&1 || true
 }
 
 measure() {
@@ -75,9 +83,10 @@ measure() {
   docker exec nm-r2 ip link set eth1 down
   probe | grep -E 'packet loss|round-trip' | sed 's/^/  /'
   docker exec nm-r2 ip link set eth1 up
-  echo "── D. FRR 守护进程实况 ──"
+  echo "── D. FRR 守护进程与真实路由表 ──"
   docker exec nm-r2 vtysh -c 'show version' 2>&1 | tail -1 | sed 's/^/  /'
-  docker exec nm-r2 sh -c 'pgrep -x zebra >/dev/null && echo "  zebra: running" || echo "  zebra: NOT running（vtysh 拿不到路由表）"'
+  docker exec nm-r2 sh -c 'ls /var/run/frr/zebra.vty >/dev/null 2>&1 && echo "  zebra: running" || echo "  zebra: NOT running（检查是否缺 --cap-add=SYS_ADMIN）"'
+  docker exec nm-r2 vtysh -c 'show ip route' 2>/dev/null | grep -E '^[KCSOR]>?' | sed 's/^/    /'
 }
 
 down() {

@@ -35,12 +35,31 @@ scripts/lab.sh measure   # 采三态原始数据
 
 | 场景 | 注入 | 处置前（实测） | 处置后（实测） | success | verified |
 |---|---|---|---|---|---|
-| S0 基线 | 无 | RTT 0.133ms / 丢包 0.0 | — | — | — |
+| S0 基线 | 无 | RTT 0.093ms / 丢包 0.0 | — | — | — |
 | S1 拥塞 | `tc netem delay 120ms loss 8%`（r1 出口） | RTT 120.288ms / 丢包 0.1 | RTT 0.12ms / 丢包 0.0 | ✅ True | ✅ True |
 | S2 断链 | `r2 eth1 link down` | RTT 999.0ms / 丢包 1.0 | RTT 0.118ms / 丢包 0.0 | ✅ True | ✅ True |
 | S3 **反例** | 同 S1，但处置动作为**空操作** | RTT 120.281ms | RTT 120.345ms | ❌ **False** | ✅ True |
 
 原始数据：`tests/fixtures/lab/closed-loop-run.json`
+
+## 真实路由表（zebra 输出，非推断）
+
+```
+K>* 0.0.0.0/0      [0/0] via 192.168.2.1, eth1        r1 默认路由
+K>* 192.168.3.0/24  [0/0] via 192.168.2.3, eth1        r1 经 r2 到远端段
+C>* 192.168.1.0/24 is directly connected, eth0
+C>* 192.168.2.0/24 is directly connected, eth1
+C>* 192.168.3.0/24 is directly connected, eth1        r2 的远端段
+```
+
+原文见 `tests/fixtures/lab/frr-routing-table.txt` 与 `frr-routing-table-r1.txt`，
+采集命令 `scripts/lab.sh measure` 的 D 段。
+
+**采这段数据时踩到的坑值得记**：zebra 需要 `--cap-add=SYS_ADMIN` 才能起来。
+缺了它，`watchfrr` 照常拉起 `staticd`，但 zebra 进程不出现——`/var/run/frr/` 下
+只有 `staticd.vty` 没有 `zebra.vty`，而 `vtysh` 只报一句「zebra is not running」，
+不告诉你真正原因是权限。真因藏在 `privs_init: initial cap_set_proc failed:
+Operation not permitted` 里。**表层报错与真因不在一处**，只信表层会一直查错方向。
 
 ## S3 是本报告最重要的一行
 
@@ -71,7 +90,8 @@ False；重测没改善则触发回滚并如实记录；探针挂了就记异常
   直接比较。可比的只有同环境下的相对变化——S1 的 120ms 是 `tc netem` 注入的
   （见上表与 `tests/fixtures/lab/throughput-real.json`），不是测出来的真实生产时延。
 - **FRR 单厂商**：容器内跑的是 FRR，**没有**接 cisco-ios / juniper-junos / arista-eos。
-  拓扑里 `zebra` 守护进程未起，**路由表数据本轮未采到**。
+  路由表是 zebra 的真实输出（`tests/fixtures/lab/frr-routing-table-r1.txt`），但只有
+  直连与静态路由，**没有** OSPF/BGP 等动态协议的邻居与收敛数据。
 - **「处置」= 清除实验台注入的故障**，不是「自动修复真实网络故障」。它证明的是闭环
   机制本身不撒谎，**不**证明 NetMind 能修好真实网络。
 - **样本量小**：每场景 10 个包（命令见上「复现」节），S1 的丢包率在不同轮次
@@ -86,3 +106,4 @@ False；重测没改善则触发回滚并如实记录；探针挂了就记异常
 | Post-apply verification | ✅ 已实现——S1/S2 的 `verified=True` 即重测完成 |
 | Healing action | ⚠️ 仅在实验台成立（清除注入故障），真实网络故障未验证 |
 | Diagnosis thresholds | ⚠️ 阈值为单一拓扑标定；带宽判定需基线，无基线时跳过 |
+| Routing state | ✅ Real — zebra 真实路由表（仅直连+静态，无动态协议） |

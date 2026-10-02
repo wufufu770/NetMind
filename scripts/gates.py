@@ -43,7 +43,7 @@ GATES: list[Gate] = [
         id='license-present',
         desc='LICENSE 文件存在且非空（企业法务硬阻塞）',
         on_fail='block',
-        check="""
+        check=r"""
 lic = ROOT / 'LICENSE'
 assert lic.exists(), 'LICENSE 文件缺失：README/pyproject/CONTRIBUTING 三处声称 MIT 但文件不在'
 body = lic.read_text(encoding='utf-8').strip()
@@ -55,7 +55,7 @@ assert 'MIT' in body or 'Apache' in body, 'LICENSE 未声明具体协议名'
         id='loop-state-present',
         desc='循环状态文件存在且满足不变量（backlog 非空、cycle 单调）',
         on_fail='block',
-        check="""
+        check=r"""
 sp = LOOP_DIR / 'state.json'
 assert sp.exists(), '.netmind-loop/state.json 缺失——循环未落盘即等于未跑'
 st = json.loads(sp.read_text(encoding='utf-8'))
@@ -97,7 +97,7 @@ assert not unblocked, '标 blocked 但未写 blocked_on: ' + ', '.join(unblocked
         id='no-dead-module',
         desc='零死模块（无任何导入点的 .py 不得留在包内）',
         on_fail='block',
-        check="""
+        check=r"""
 assert _dead_modules() == [], '零引用死模块: ' + ', '.join(_dead_modules())
 """,
     ),
@@ -105,7 +105,7 @@ assert _dead_modules() == [], '零引用死模块: ' + ', '.join(_dead_modules()
         id='real-data-not-faked',
         desc='真实数据通道未被退回模拟（fixture 存在且含真实采集特征）',
         on_fail='block',
-        check="""
+        check=r"""
 import json
 from pathlib import Path
 lab = ROOT / 'tests' / 'fixtures' / 'lab'
@@ -127,8 +127,7 @@ j = json.loads((lab / 'throughput-real.json').read_text(encoding='utf-8'))
 states = j.get('states', {})
 assert {'healthy', 'delay_only', 'rate_limited'} <= set(states), '带宽 fixture 缺少关键状态'
 assert states['delay_only']['throughput_mbps'] > 0, '延迟态带宽须为真实正值而非 0'
-assert states['healthy']['rtt_avg_ms'] < states['delay_only']['rtt_avg_ms'], \\
-    '延迟态 RTT 应大于健康态，否则采集根本没生效'
+assert states['healthy']['rtt_avg_ms'] < states['delay_only']['rtt_avg_ms'], '延迟态 RTT 应大于健康态，否则采集根本没生效'
 
 # 采集器必须真的接在 schema 上，否则真实数据存不进来
 sc = (ROOT / 'backend' / 'app' / 'schemas.py').read_text(encoding='utf-8')
@@ -139,7 +138,7 @@ assert "'real'" in sc or '"real"' in sc, 'TelemetrySnapshot.source 未开放 rea
         id='no-fake-healing',
         desc='自愈不得恒报成功（verified=False 时 success 必须 False，且跑测须含反例）',
         on_fail='block',
-        check="""
+        check=r"""
 import json
 # 1) schema 层：success 不能再有「默认 True」这种一构造就成功的默认值
 sch = (ROOT / 'backend' / 'app' / 'schemas.py').read_text(encoding='utf-8')
@@ -166,10 +165,31 @@ assert neg[0]['verified'] is True, '反例应已重测，verified 应为 True'
 """,
     ),
     Gate(
+        id='routing-data-is-real',
+        desc='路由数据来自真 zebra 而非推断（fixture 含真实路由行且记录了 SYS_ADMIN 依赖）',
+        on_fail='block',
+        check=r"""
+lab = ROOT / 'tests' / 'fixtures' / 'lab'
+for n in ('frr-routing-table.txt', 'frr-routing-table-r1.txt'):
+    f = lab / n
+    assert f.exists(), f'缺路由表 fixture {n}'
+    body = f.read_text(encoding='utf-8')
+    assert re.search(r'^[KCSOR]>?[*]?\s+\d+\.\d+\.\d+\.\d+', body, re.M), \
+        f'{n} 里没有形如「K>* 0.0.0.0/0」的真实路由行——疑似手写样例'
+# 采这份数据的关键前提：zebra 需要 SYS_ADMIN，缺了会静默失败。
+# 把这个坑记进 fixture，否则下一个接手的人还会踩。
+assert 'SYS_ADMIN' in (lab / 'frr-routing-table.txt').read_text(encoding='utf-8'), \
+    '路由表 fixture 未记录 zebra 对 SYS_ADMIN 的依赖'
+# lab.sh 必须真的声明了这个能力
+assert '--cap-add=SYS_ADMIN' in (ROOT / 'scripts' / 'lab.sh').read_text(encoding='utf-8'), \
+    'scripts/lab.sh 未声明 --cap-add=SYS_ADMIN，zebra 会静默起不来'
+""",
+    ),
+    Gate(
         id='frontend-has-tests',
         desc='前端不再零测试：存在 npm test 脚本、测试文件，且 App.jsx 真的在用被测模块',
         on_fail='block',
-        check="""
+        check=r"""
 import json
 d = json.loads((ROOT / 'frontend' / 'package.json').read_text(encoding='utf-8'))
 assert 'test' in d.get('scripts', {}), 'package.json 无 test 脚本——前端此前零测试，CI 只 build 不 test'
@@ -189,7 +209,7 @@ assert 'npm test' in ci, 'CI 未运行前端测试'
         id='deps-pinned-and-audited',
         desc='依赖全钉版（无 >= / ^ 浮动范围）',
         on_fail='warn',
-        check="""
+        check=r"""
 import re
 LOOSE = ('>=', '<=', '~=', '^')
 bad = []
@@ -206,7 +226,7 @@ assert not bad, '未钉版本的依赖: ' + '; '.join(bad)
         id='ci-security-gates',
         desc='CI 具备依赖漏洞扫描（pip-audit / npm audit）',
         on_fail='warn',
-        check="""
+        check=r"""
 ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
 has_pip = 'pip-audit' in ci
 has_npm = 'npm audit' in ci
@@ -217,7 +237,7 @@ assert has_pip or has_npm, 'CI 无依赖漏洞扫描门（pip-audit / npm audit�
         id='dependabot-present',
         desc='依赖自动更新已启用',
         on_fail='warn',
-        check="""
+        check=r"""
 assert (ROOT / '.github' / 'dependabot.yml').exists(), '无 dependabot/renovate，CVE 响应无自动化'
 """,
     ),

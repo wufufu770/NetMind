@@ -1,0 +1,14 @@
+# 真实 FRR/zebra 路由表 — r1（含跨段静态路由）
+# 采集: 2026-10-02T13:47:54Z
+
+Codes: K - kernel route, C - connected, S - static, R - RIP,
+       O - OSPF, I - IS-IS, B - BGP, E - EIGRP, N - NHRP,
+       T - Table, v - VNC, V - VNC-Direct, A - Babel, F - PBR,
+       f - OpenFabric,
+       > - selected route, * - FIB route, q - queued, r - rejected, b - backup
+       t - trapped, o - offload failure
+
+K>* 0.0.0.0/0 [0/0] via 192.168.2.1, eth1, 00:01:04
+C>* 192.168.1.0/24 is directly connected, eth0, 00:01:05
+C>* 192.168.2.0/24 is directly connected, eth1, 00:01:04
+K>* 192.168.3.0/24 [0/0] via 192.168.2.3, eth1, 00:00:59
