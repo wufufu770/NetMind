@@ -7,10 +7,20 @@ napalm 5.2 核心实测只带 eos/junos/ios/iosxr/nxos/nxos_ssh 六个驱动，
 
 映射错了不会静默通过——它会对着错误型号发命令，这比报错严重。
 """
+import importlib.util
+
 import pytest
 
 from app.diagnose.drivers import (CORE_DRIVERS, KIND_TO_DRIVER, PLUGIN_DRIVERS,
                                   driver_available, pick_driver)
+
+# napalm / netmiko 在 requirements-drivers.txt 里，不在 requirements.txt。
+# CI 只装 requirements.txt，所以依赖驱动的用例必须显式跳过而不是失败——
+# 否则 CI 红的是一个「本机装了驱动」的环境差异，不是代码问题。
+NAPALM_PRESENT = importlib.util.find_spec('napalm') is not None
+requires_napalm = pytest.mark.skipif(
+    not NAPALM_PRESENT,
+    reason='需可选驱动依赖（pip install -r backend/requirements-drivers.txt）；CI 未安装，故跳过')
 
 
 def test_linux_and_frr_are_explicitly_unsupported():
@@ -56,6 +66,7 @@ def test_plugin_drivers_are_declared_as_optional_extras():
         assert pkg in txt, f'{pkg} 未在 requirements-drivers.txt 声明，{drv} 驱动永远不可用'
 
 
+@requires_napalm
 @pytest.mark.parametrize('drv', sorted(CORE_DRIVERS))
 def test_core_drivers_really_import(drv):
     """核心驱动必须真的可用——映射表不能凭空列。"""

@@ -4,8 +4,8 @@
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 8,
   "phase": "plan",
-  "updated": "2026-10-02T22:11:42+08:00",
-  "head": "9a60681",
+  "updated": "2026-10-02T22:13:16+08:00",
+  "head": "7f56372",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -625,6 +625,14 @@
       "root_cause": "让 lab.sh 从零跑（此前都是我手工敲 docker 命令，脚本本身从没被完整执行过）后暴露三个 bug：① 缺 --cap-add=SYS_ADMIN，zebra 静默起不来——watchfrr 照常拉起 staticd，但 /var/run/frr 下只有 staticd.vty 没有 zebra.vty，vtysh 只报「zebra is not running」不透露真因，真因是 privs_init: cap_set_proc failed ② 客户端循环给两个容器都分配 192.168.1.10（Address already in use）③ 脚本头 set -euo pipefail 碰上 ping 在 100% 丢包时的非零退出码会当场退出——而「全断」恰恰是它最该测出来的场景，等于测不到自己要测的东西",
       "fix": "① 三个都修：加 SYS_ADMIN、循环按序号取 IP、probe 吞掉 ping 退出码但保留输出并让判定看报文不看退出码 ④ 教训：脚本没被真正执行过就等于没写；我之前一直在手工跑等价命令，脚本里的错误被手工步骤掩盖了",
       "at": "2026-10-02T21:50:35+08:00"
+    },
+    {
+      "cycle": 9,
+      "gate": "test-driver(硬依赖可选依赖)",
+      "on_fail": "manual",
+      "root_cause": "test_core_drivers_really_import 断言 napalm 核心驱动可导入，但 napalm 在 requirements-drivers.txt 而不在 requirements.txt——CI 只装后者。这条测试会让 CI 红在一个「本机装了驱动」的环境差异上，不是代码问题",
+      "fix": "① 加 requires_napalm skipif，跳过理由写明「需可选驱动依赖，CI 未安装」② 教训：测试不得硬依赖可选依赖集合之外的东西；依赖分层（核心 vs 驱动）必须体现在测试的 skip 条件上，否则跨矩阵环境必然误报",
+      "at": "2026-10-02T22:13:16+08:00"
     }
   ],
   "gates_total": 14,
