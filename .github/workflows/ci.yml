@@ -80,8 +80,9 @@ jobs:
       - name: SBOM
         run: |
           pip install cyclonedx-bom
-          cyclonedx-py environment --outfile netmind-sbom.json -o frontend -t python
+          cyclonedx-py requirements --output-file netmind-sbom.json
+        working-directory: backend
       - uses: actions/upload-artifact@v4
         with:
           name: sbom
-          path: netmind-sbom.json
+          path: backend/netmind-sbom.json

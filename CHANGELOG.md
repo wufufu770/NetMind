@@ -3,7 +3,18 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- **CI 的 SBOM 步骤一直是红的，而且即使跑通也是错的**（外部复核发现，此前我一直只说「supply-chain 已修」）：
+  ① `cyclonedx-py environment --outfile x.json -o frontend -t python` 在 cyclonedx-bom 7.5.0 下退出码 2——`-o` 是 `--output-file`（要文件路径，给目录报 can't open 'frontend': Is a directory），`-t` 根本不是合法参数
+  ② 更严重：supply-chain job **从不安装 backend/requirements.txt**，用 `environment` 子命令扫的是 runner 环境（pip/pip-audit/cyclonedx-bom），**不是项目依赖**。绿的 SBOM 比红的更危险——采购会拿它当数
+  改为 `cyclonedx-py requirements --output-file netmind-sbom.json`（working-directory: backend），从声明文件生成，无需安装，实测 12 个组件覆盖全部声明依赖
+- `loop.py` 的 `status` / `gates` 是只读命令却每次都写 state.json——查一眼状态就把已提交的快照弄脏，而脏的正是下次接手时读到的第一份文件
+- `cmd_metrics` 把 `gates_total` 写到顶层而打印的是 `metrics.gates_total`，后者永远停在旧值（长期显示 15 而实际 16）
+- 指标 `tests_passed` 名实不符：数的是 `def test_` 定义个数，parametrize 展开的用例没算进去（119 vs 实际 124），且「定义数」既不是用例数也不是通过数。改用 pytest --collect-only 的权威结果并更名为 `tests_collected`
+
 ### Added
+- 新门禁 `sbom-covers-declared-deps`：**把 CI YAML 里写的 SBOM 命令真跑一遍**，校验产物是合法 CycloneDX 且覆盖 requirements.txt 里每个声明依赖。已反验：换回旧写法会被拦下
+
 - 厂商能力矩阵（`diagnose/vendor_matrix.py` + `GET /api/vendors`、`/api/vendors.md`）。每家厂商带**验证等级**：verified（已在真实设备跑通采集）/ declared（映射与依赖齐备未验）/ blocked（缺插件，标出卡在哪）。README 不再自述厂商清单，只引用矩阵
 - 映射表补 Cisco 系 kind（`ios`/`iosxe`/`iosv`/`cat9k`→`ios`，`nxos`/`nxos_ssh`→`nxos`，`iosxr`→`iosxr`）——此前厂商矩阵声称支持而代码里根本没有这些 kind
 

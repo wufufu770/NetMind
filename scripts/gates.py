@@ -321,6 +321,77 @@ assert not bad, '未钉版本的依赖: ' + '; '.join(bad)
 """,
     ),
     Gate(
+        id='sbom-covers-declared-deps',
+        desc='CI 的 SBOM 步骤真能跑，且产出的 SBOM 覆盖项目声明的依赖（不是 runner 环境）',
+        on_fail='block',
+        check=r"""
+import json, os, re, subprocess, sys, tempfile
+from pathlib import Path as P
+
+# 这条门禁存在的理由：SBOM 步骤写完就再没被执行过。cyclonedx-bom 7.5.0 里
+#   -o 是 --output-file（要文件路径，给目录会报 can't open 'x': Is a directory）
+#   -t 根本不是合法参数（unrecognized arguments: -t）
+# 于是 supply-chain job 一直是红的，只是本地没跑看不出来。
+# 而且更糟：那个 job 从不安装 backend/requirements.txt，用 environment 子命令
+# 捕获到的是 runner 环境（pip/pip-audit/cyclonedx-bom），**不是项目依赖**——
+# 绿的 SBOM 比红的更危险，因为采购会拿它当数。
+#
+# 修法：不猜命令，直接把 CI YAML 里写的那段真跑一遍，看产物对不对。
+
+ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+
+# 1) CI 里必须真装声明依赖，否则 SBOM 抓的是 runner 环境
+sbom_block = re.search(r'- name: SBOM\n\s+run: \|\n((?:\s{10,}.*\n)+)', ci)
+assert sbom_block, 'CI 里找不到 SBOM 步骤'
+block = sbom_block.group(1)
+assert 'cyclonedx-py' in block, 'SBOM 步骤没调 cyclonedx-py'
+# environment 子命令扫的是已安装环境；本 job 不装项目依赖，用它必然抓错东西
+assert 'cyclonedx-py environment' not in block, \
+    'SBOM 用 environment 子命令但本 job 未安装 backend/requirements.txt——会抓成 runner 环境'
+assert 'requirements' in block, \
+    'SBOM 应用 requirements 子命令从声明文件生成，而不是扫环境'
+
+# 2) 把 CI 里写的命令真跑一遍（本地已装 cyclonedx-bom 时）
+have_tool = subprocess.run([sys.executable, '-m', 'cyclonedx_py', '--version'],
+                           capture_output=True).returncode == 0
+if not have_tool:
+    import importlib.util
+    have_tool = importlib.util.find_spec('cyclonedx') is not None
+if have_tool:
+    with tempfile.TemporaryDirectory() as td:
+        work = P(ROOT / 'backend')
+        lines = [c.strip() for c in block.strip().splitlines() if c.strip()
+                 and not c.strip().startswith('pip install')]
+        assert lines, 'SBOM 步骤里除了 pip install 没别的命令'
+        import shlex
+        cmd = shlex.split(' '.join(lines))
+        # console script 通常与解释器同目录，不在 PATH 上
+        exe = P(cmd[0])
+        if not exe.exists():
+            alt = P(sys.executable).parent / cmd[0]
+            if alt.exists():
+                cmd[0] = str(alt)
+        r = subprocess.run(cmd, cwd=work, capture_output=True, text=True, timeout=600)
+        out = None
+        if '--output-file' in cmd:
+            out = work / cmd[cmd.index('--output-file') + 1]
+        if out is None or not out.exists():
+            cands = sorted(work.glob('*sbom*.json'))
+            out = cands[-1] if cands else None
+        assert r.returncode == 0, f'CI 的 SBOM 命令实跑失败（退出码 {r.returncode}）: {(r.stderr or r.stdout)[-300:]}'
+        assert out is not None, 'SBOM 命令跑通了却没产出文件'
+        doc = json.loads(out.read_text(encoding='utf-8'))
+        names = {c.get('name') for c in doc.get('components', [])}
+        declared = []
+        for line in (work / 'requirements.txt').read_text(encoding='utf-8').splitlines():
+            line = line.split('#')[0].strip()
+            if not line: continue
+            declared.append(re.split(r'[=<>!~\[]', line)[0].strip())
+        missing = [d for d in declared if d not in names]
+        assert not missing, f'SBOM 缺声明依赖: {missing}（实际含 {len(names)} 个组件）'
+""",
+    ),
+    Gate(
         id='ci-security-gates',
         desc='CI 具备依赖漏洞扫描（pip-audit / npm audit）',
         on_fail='warn',

@@ -2,10 +2,10 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 9,
+  "cycle": 10,
   "phase": "plan",
-  "updated": "2026-10-02T22:40:07+08:00",
-  "head": "0dacd27",
+  "updated": "2026-10-02T23:12:08+08:00",
+  "head": "8a869d5",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -13,7 +13,7 @@
       "商业化与去 AI 味方案：/home/wff/netmind-COMMERCIAL-AND-DESLOP-PLAN.md"
     ],
     "baseline_metrics": {
-      "tests_passed": 67,
+      "tests_collected": 67,
       "src_lines": 6164,
       "generic_names": 167,
       "dead_modules": 1,
@@ -21,11 +21,11 @@
     }
   },
   "metrics": {
-    "tests_passed": 119,
-    "gates_total": 13,
-    "gates_passed": 15,
+    "tests_collected": 124,
+    "gates_total": 16,
+    "gates_passed": 16,
     "gates_warned": 0,
-    "src_lines": 8721,
+    "src_lines": 8819,
     "generic_names": 174,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -34,7 +34,7 @@
   "metric_history": [
     {
       "cycle": 1,
-      "tests_passed": 67,
+      "tests_collected": 67,
       "gates_total": 8,
       "gates_passed": 8,
       "gates_warned": 0,
@@ -46,7 +46,7 @@
     },
     {
       "cycle": 2,
-      "tests_passed": 75,
+      "tests_collected": 75,
       "gates_total": 8,
       "gates_passed": 8,
       "gates_warned": 0,
@@ -58,7 +58,7 @@
     },
     {
       "cycle": 3,
-      "tests_passed": 86,
+      "tests_collected": 86,
       "gates_total": 8,
       "gates_passed": 9,
       "gates_warned": 0,
@@ -70,7 +70,7 @@
     },
     {
       "cycle": 4,
-      "tests_passed": 87,
+      "tests_collected": 87,
       "gates_total": 9,
       "gates_passed": 9,
       "gates_warned": 0,
@@ -82,7 +82,7 @@
     },
     {
       "cycle": 5,
-      "tests_passed": 95,
+      "tests_collected": 95,
       "gates_total": 9,
       "gates_passed": 10,
       "gates_warned": 0,
@@ -94,7 +94,7 @@
     },
     {
       "cycle": 6,
-      "tests_passed": 95,
+      "tests_collected": 95,
       "gates_total": 10,
       "gates_passed": 12,
       "gates_warned": 0,
@@ -106,7 +106,7 @@
     },
     {
       "cycle": 7,
-      "tests_passed": 95,
+      "tests_collected": 95,
       "gates_total": 12,
       "gates_passed": 13,
       "gates_warned": 0,
@@ -118,7 +118,7 @@
     },
     {
       "cycle": 8,
-      "tests_passed": 111,
+      "tests_collected": 111,
       "gates_total": 13,
       "gates_passed": 14,
       "gates_warned": 0,
@@ -130,11 +130,23 @@
     },
     {
       "cycle": 9,
-      "tests_passed": 119,
+      "tests_collected": 119,
       "gates_total": 13,
       "gates_passed": 15,
       "gates_warned": 0,
       "src_lines": 8721,
+      "generic_names": 174,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 10,
+      "tests_collected": 124,
+      "gates_total": 16,
+      "gates_passed": 16,
+      "gates_warned": 0,
+      "src_lines": 8819,
       "generic_names": 174,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -382,6 +394,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-verify-fixes",
+      "title": "外部复核发现的 CI 假绿 + 指标失真",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -475,6 +495,14 @@
       "shipped": "厂商能力矩阵 diagnose/vendor_matrix.py（8 家，每家带验证等级）+ GET /api/vendors 与 /api/vendors.md。README 不再自述厂商清单只引用矩阵。补 Cisco 系 kind 到映射表——矩阵声称支持而代码没有，是测试当场抓到的漂移。新门禁 vendor-matrix-is-authoritative + 8 个矩阵测试，全量 116→124。实测：ceos/vyos/junos 镜像在本环境不可达，故 5 家停在 declared、2 家 blocked，只有 Linux/FRR 是 verified。",
       "at": "2026-10-02T22:40:07+08:00",
       "head": "0dacd27"
+    },
+    {
+      "cycle": 10,
+      "id": "W-verify-fixes",
+      "title": "外部复核发现的 CI 假绿 + 指标失真",
+      "shipped": "修 CI 的 SBOM 步骤：cyclonedx-py 7.5.0 下 -o 语义变更与 -t 不存在导致退出码 2，且 job 从不装 requirements.txt 导致 SBOM 抓的是 runner 环境而非项目依赖。改用 requirements 子命令从声明文件生成。新门禁 sbom-covers-declared-deps 会真跑 CI 里写的命令并校验产物覆盖声明依赖（已反验有效）。另修 loop.py 只读命令写盘、cmd_metrics 写错层级、指标名实不符（tests_passed→tests_collected 且改用 pytest --collect-only）。state.json 三处陈旧字段已刷新。",
+      "at": "2026-10-02T23:12:08+08:00",
+      "head": "8a869d5"
     }
   ],
   "retro": [
@@ -669,14 +697,22 @@
       "root_cause": "厂商矩阵声称支持 cisco-ios/nxos/iosxr，但 pick_driver 的 KIND_TO_DRIVER 里根本没有这些 kind——矩阵说的和代码做的不一致，正是我要防的那类漂移，被自己写的测试抓到",
       "fix": "① 补 Cisco 系 kind 到映射表（containerlab 的 vr-ios/iosxe/iosv、nxos、vr-xr 都是合法 kind 且 napalm 有驱动）② 测试锁住「矩阵里每个 kind 必须真的映射到矩阵写的驱动」③ 教训：任何「能力清单」都要有生成源+一致性测试，否则清单和实现必然分叉",
       "at": "2026-10-02T22:39:57+08:00"
+    },
+    {
+      "cycle": 10,
+      "gate": "metrics(名实不符+写错层级)",
+      "on_fail": "manual",
+      "root_cause": "tests_passed 实际数的是 def test_ 定义个数，parametrize 展开的用例没算（119 vs 实际 124），且「定义数」既不是用例数也不是通过数；cmd_metrics 又把 gates_total 写到顶层 st 而打印 metrics 里的，导致 metrics.gates_total 永远停在 15（实际 16）",
+      "fix": "① 改用 pytest --collect-only 的权威计数并更名为 tests_collected ② gates_total 写进 metrics 再同步顶层 ③ 教训：指标的名字本身就是一条对外声明；名字与算法不符时，看板比没有更糟",
+      "at": "2026-10-02T23:11:41+08:00"
     }
   ],
-  "gates_total": 15,
+  "gates_total": 16,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T22:40:06+08:00"
+    "planned_at": "2026-10-02T23:12:03+08:00"
   }
 }

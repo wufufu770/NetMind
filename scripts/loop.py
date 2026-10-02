@@ -83,7 +83,7 @@ def compute_metrics() -> dict:
         slop = int(m.group(1)) if m else 0
 
     return {
-        'tests_passed': count_tests(),
+        'tests_collected': count_tests(),
         'src_lines': line_count(ROOT, ('*.py', '*.mjs', '*.ts', '*.jsx', '*.css')),
         'generic_names': generic,
         'dead_modules': dead,
@@ -93,6 +93,21 @@ def compute_metrics() -> dict:
 
 
 def count_tests() -> int:
+    """真实用例数，用 pytest 自己的收集结果。
+
+    此前数的是 `def test_` 的定义个数——parametrize 会把一个函数展开成多个用例
+    （test_driver_mapping 里一个 parametrize 展开 6 个），静态计数会少报。
+    而且这个指标叫 tests_passed，静态计数既不是「用例数」也不是「通过数」，
+    名实不符会让趋势线失真。改用 pytest --collect-only 的权威结果。
+    """
+    r = subprocess.run(
+        [sys.executable, '-m', 'pytest', str(ROOT / 'backend' / 'tests'),
+         '--collect-only', '-q', '--no-header'],
+        capture_output=True, text=True, timeout=600, cwd=ROOT)
+    m = re.search(r'(\d+)\s+tests? collected', r.stdout)
+    if m:
+        return int(m.group(1))
+    # 收集失败时退回静态计数，但要在指标里区分得出来
     n = 0
     tdir = ROOT / 'backend' / 'tests'
     if tdir.exists():
@@ -132,23 +147,31 @@ def cmd_status(st: dict) -> int:
 
 
 def cmd_gates(st: dict) -> int:
+    """跑门禁并打印。不落盘——查状态不该改状态。
+
+    门禁计数写进 state.metrics 的动作留给 `round` 与显式的 `metrics`，
+    否则「看一眼门禁」会把已提交的 state.json 弄脏，而脏的是别人下次接手
+    时读到的第一份文件。
+    """
     print('\n  跑门禁：')
-    for r in gates_mod.run_gates():
+    results = gates_mod.run_gates()
+    for r in results:
         mark = {'pass': 'PASS', 'fail': 'FAIL', 'error': 'ERR ', 'skip': 'SKIP'}[r['status']]
-        print(f"  [{mark}] {r['id']:<22} ({r['on_fail']}) {r['desc']}")
+        print(f"  [{mark}] {r['id']:<30} ({r['on_fail']}) {r['desc']}")
         if r['status'] in ('fail', 'error') and r['detail']:
-            for line in r['detail'].splitlines()[:6]:
+            for line in r['detail'].splitlines()[:5]:
                 print(f'         {line}')
-    p, t, bad = gates_mod.summarize(gates_mod.run_gates())
+    p, t, bad = gates_mod.summarize(results)
     print(f'\n  门禁 {p}/{t} 通过，{bad} 条未通过')
-    st['metrics']['gates_passed'] = p
-    st['metrics']['gates_total'] = t
     return 0 if bad == 0 else 1
 
 
 def cmd_metrics(st: dict) -> int:
     st['metrics'].update(compute_metrics())
-    st['gates_total'] = len(gates_mod.GATES)
+    # 写进 metrics 而不是顶层：打印的是 st['metrics']，写顶层的话
+    # metrics.gates_total 会永远停在上一次的值（曾长期显示 15 而实际 16）。
+    st['metrics']['gates_total'] = len(gates_mod.GATES)
+    st['gates_total'] = len(gates_mod.GATES)          # 顶层保留一份，兼容旧读取方
     print('\n  指标已刷新：')
     for k, v in st['metrics'].items():
         print(f'    {k:<20} {v}')
@@ -390,10 +413,14 @@ def main() -> int:
         rc = cmd_block(st, a.rest)
         save(st)
         return rc
+    # 只读命令不落盘：查一眼状态就把已提交的 state.json 弄脏，是很难发现的
+    # 副作用——下次接手的人读到的第一份文件就被改过。status/gates 只读；
+    # metrics 是显式的刷新命令，plan/state/round/retro/block 会改状态。
+    READ_ONLY = {'status', 'gates'}
     rc = {'status': cmd_status, 'gates': cmd_gates, 'metrics': cmd_metrics,
           'plan': cmd_plan, 'state': cmd_state, 'round': cmd_round,
           'save': lambda s: (save(s), print('  state.json 已保存'), 0)[2]}[a.cmd](st)
-    if a.cmd != 'save':
+    if a.cmd not in READ_ONLY:
         save(st)
     return rc
 
