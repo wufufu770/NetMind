@@ -13,3 +13,6 @@ data/
 .DS_Store
 .env
 *.egg-info/
+
+# CI 产物（supply-chain job 生成后作为 artifact 上传），不入库
+*-sbom.json

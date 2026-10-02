@@ -447,6 +447,10 @@ if have_tool:
             if not line: continue
             declared.append(re.split(r'[=<>!~\[]', line)[0].strip())
         missing = [d for d in declared if d not in names]
+        # 跑完清掉产物：它是 CI 的 artifact，不是源码。留着会把工作树弄脏——
+        # 与之前「只读命令写盘」同一类副作用，校验工具自己不该留痕。
+        if out is not None and out.exists():
+            out.unlink()
         assert not missing, f'SBOM 缺声明依赖: {missing}（实际含 {len(names)} 个组件）'
 """,
     ),
