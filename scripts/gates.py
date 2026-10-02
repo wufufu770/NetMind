@@ -348,6 +348,30 @@ assert not res['failures'], (
 """,
     ),
     Gate(
+        id='load-test-no-loss',
+        desc='并发压测：零错误 + 压完数据不丢不坏（延迟不设硬阈值，CI 上会抖）',
+        on_fail='block',
+        check=r"""
+import json, re, subprocess, sys
+# 延迟基线记录在 docs/load-test-baseline.md。这里只卡「有没有错」和「数据有没有
+# 坏」——p99 在 CI runner 上抖动很大，拿它当门禁只会制造假红。性能基线是观察项，
+# 不是门禁项。
+r = subprocess.run([sys.executable, str(ROOT / 'scripts' / 'load_test.py'),
+                    '--workers', '8', '--per-worker', '8', '--json'],
+                   cwd=ROOT, capture_output=True, text=True, timeout=900)
+msg = '压测未通过，退出码 %s；输出尾部: %s %s' % (r.returncode, r.stdout[-600:], r.stderr[-300:])
+assert r.returncode == 0, msg
+m = re.search(r'\{\s*"scenarios".*\n\}', r.stdout, re.S)
+assert m, '压测输出里找不到 JSON 段——报告格式变了'
+d = json.loads(m.group(0))
+errs = sum(x['errors'] for x in d['scenarios'])
+assert errs == 0, f'压测出现 {errs} 类错误'
+assert d['data_intact'], '压测后数据文件损坏'
+leftover = d['temp_leftovers']
+assert leftover == 0, '压测后残留 %d 个临时文件' % leftover
+""",
+    ),
+    Gate(
         id='tests-are-reproducible',
         desc='测试连跑两次结果必须一致（不可复现的测试比没有测试更糟）',
         on_fail='block',

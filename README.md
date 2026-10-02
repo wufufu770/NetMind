@@ -42,6 +42,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Data durability | ✅ Atomic write (fsync + rename + dir fsync) + `scripts/data_ops.py` backup/restore/drill; drill 在 CI 里每次真跑 |
 | Rollback semantics | ✅ Covered — rollback only touches *applied* commands; cookies released after rollback; security-blocked ⇒ no rollback, driver-failed ⇒ conservative rollback |
 | Test reproducibility | ✅ Gate `tests-are-reproducible` runs the suite twice; same pass count required |
+| Concurrency | ✅ 20×20=1040 requests, **0 errors**, data intact; latency baseline in `docs/load-test-baseline.md` (known limit: single-process only) |
 
 ## Vendor support
 

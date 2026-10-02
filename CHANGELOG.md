@@ -4,6 +4,17 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- `scripts/load_test.py`：HTTP 层并发压测（读/写/混合/鉴权四类），输出 p50/p95/p99 与错误数，
+  并校验压测后数据文件完好、零临时残留。基线见 `docs/load-test-baseline.md`
+- 门禁 `load-test-no-loss`：卡「零错误 + 数据不丢不坏」，**不卡延迟**（CI 上 p99 抖动大，
+  拿它当门禁只会造假红）
+- CI 加压测步骤
+
+### Fixed
+- **压测脚本报告了一个没发生过的压测量**。`ex.map(one, range(per_worker))` 只发了
+  `per_worker` 条，打印的却是 `workers × per_worker` —— 算出来的不是观测到的。
+  这正是本项目规则 2 禁止的事。现改为实发实报，并断言 `len(lat) == workers × per_worker`
+
 - `test_transaction.py`：事务与回滚语义回归 10 例。此前该模块**零直接覆盖**——项目宣称
   最响的「可回滚」，测试最空的地方正是这里
 - 门禁 `tests-are-reproducible`：全量测试连跑两次，通过数必须一致

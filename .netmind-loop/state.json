@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 16,
+  "cycle": 17,
   "phase": "plan",
-  "updated": "2026-10-03T02:19:42+08:00",
+  "updated": "2026-10-03T02:29:40+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -21,10 +21,10 @@
   },
   "metrics": {
     "tests_collected": 171,
-    "gates_total": 20,
-    "gates_passed": 20,
+    "gates_total": 21,
+    "gates_passed": 21,
     "gates_warned": 0,
-    "src_lines": 10567,
+    "src_lines": 10777,
     "generic_names": 190,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -218,6 +218,18 @@
       "gates_passed": 20,
       "gates_warned": 0,
       "src_lines": 10567,
+      "generic_names": 190,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 17,
+      "tests_collected": 171,
+      "gates_total": 20,
+      "gates_passed": 21,
+      "gates_warned": 0,
+      "src_lines": 10777,
       "generic_names": 190,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -609,6 +621,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-load-test",
+      "title": "并发压测 —— 从「零证据」到「有基线」",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -758,6 +778,14 @@
       "shipped": "test_transaction.py 10 例（该模块此前零直接覆盖）。修四处真问题：回滚集包含从未下发的变更、cookie 登记后永不释放、首条被拦却误报已回滚、以及测试三处共享可变状态（数据文件跨运行累积 / importlib.reload 造新单例 / 后台自动保存线程与故障注入相撞）。新增门禁 tests-are-reproducible 连跑两次比对通过数。全量 160→171，门禁 19→20。",
       "at": "2026-10-03T02:19:18+08:00",
       "based_on": "807afa8"
+    },
+    {
+      "cycle": 17,
+      "id": "W-load-test",
+      "title": "并发压测 —— 从「零证据」到「有基线」",
+      "shipped": "scripts/load_test.py 四类负载（读/写/混合/鉴权），20 线程×20=1040 条请求 0 错误，数据完好零残留，基线记入 docs/load-test-baseline.md。顺带修一个我自己造的假数字：脚本只发了 per_worker 条却打印 workers×per_worker 算出来的量——正是本项目规则 2 禁止的。门禁 load-test-no-loss 只卡零错误与数据完好，不卡延迟（CI 上 p99 抖动大）。压测暴露一个未修风险：STORE 的 RLock 只护进程内，多 worker 会互相覆盖。",
+      "at": "2026-10-03T02:29:16+08:00",
+      "based_on": "d068fd6"
     }
   ],
   "retro": [
@@ -1040,17 +1068,25 @@
       "root_cause": "同一个断言(未登记 cookie 应被拒)在三种场景下失败：单跑通过、全量失败、连跑两次结果不同。三个根因：① data 文件跨运行累积 ② importlib.reload(store) 造新单例导致模块间引用分叉 ③ 后台自动保存线程与故障注入的全局替换相撞",
       "fix": "① conftest 统一治：per-session 数据文件 + 用例前重置 STORE + 关自动保存 ② fixture 改用 monkeypatch.setattr 换路径而非 reload ③ 测试内不用 monkeypatch.undo()（会连带撤销 fixture 补丁）④ 新门禁 tests-are-reproducible 连跑两次比对。教训：'单跑能过'不等于'测试是可信的'；共享可变状态是测试腐化的头号来源",
       "at": "2026-10-03T02:17:53+08:00"
+    },
+    {
+      "cycle": 17,
+      "gate": "load-test(自己造了个假数字)",
+      "on_fail": "manual",
+      "root_cause": "压测脚本 ex.map(one, range(per_worker)) 只发了 per_worker 条请求，打印的「请求 100」是 workers×per_worker 算出来的。不是观测值，是推算值——本项目规则 2 明令禁止编造遥测，我在自己的工具里犯了",
+      "fix": "① 改为真正发 workers×per_worker 条 ② 打印用实测的 len(lat) ③ 加断言 len(lat)==workers×per_worker，不符即失败。教训：造工具时最容易违反的恰恰是自己定的规矩",
+      "at": "2026-10-03T02:27:38+08:00"
     }
   ],
-  "gates_total": 20,
+  "gates_total": 21,
   "next_round": {
     "id": "C1-auth-default-safe",
     "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
     "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
     "deliverable": "",
-    "planned_at": "2026-10-03T02:19:13+08:00"
+    "planned_at": "2026-10-03T02:29:11+08:00"
   },
-  "based_on": "807afa8",
+  "based_on": "d068fd6",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

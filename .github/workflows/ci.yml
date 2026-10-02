@@ -61,6 +61,8 @@ jobs:
         run: python3 scripts/data_ops.py seed --count 20
       - name: Data durability drill (备份→破坏→恢复→校验)
         run: python3 scripts/data_ops.py drill
+      - name: Concurrent load test (8×8, zero errors, data intact)
+        run: python3 scripts/load_test.py --workers 8 --per-worker 8
       - name: Restore rejects a corrupt backup
         run: |
           printf '{"broken": ' > /tmp/bad-backup.json
