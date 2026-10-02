@@ -24,6 +24,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Capability | State |
 |---|---|
 | Workflow orchestration, conflict detection, approvals, reports | ✅ Real |
+| Config-change proposal (diff, danger marking, reviewable Markdown) | ✅ Real (`core/config_diff.py`, 8 tests) |
+| Post-apply verification | ❌ Not implemented — only pre-apply check exists |
 | Offline rule engine + mock model | ✅ Real |
 | Real LLM calls | ✅ Real (API key required) |
 | Topology & telemetry data | ⚠️ Simulated generator |

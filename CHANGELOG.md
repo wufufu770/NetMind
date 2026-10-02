@@ -3,6 +3,23 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- 变更提案（config-diff）：下发前把「将改什么」显式摊开，危险项排前并标注必须走审批流，输出可评审的 Markdown（`core/config_diff.py`，8 个测试）
+- 无限迭代循环协议：BUILD → TEST → IMPROVE → PLAN → STATE，每轮一个可验证增量，门禁声明失败退路，状态落盘保证永远有下一步（`.netmind-loop/`）
+- 去 AI 味密度门：客户可见面按密度检测空洞套话、无源数字、元评论、装饰性 emoji、过度格式化（`scripts/copy_lint.py`）
+- CI 新增 `loop-gates` 与 `supply-chain` 两个 job（后者含 pip-audit / npm audit / SBOM）
+- `LICENSE`（MIT 文件此前缺失，尽管 README 与 pyproject 均声明 MIT）
+- `CLA.md` 草案：记录「已接受贡献不可追溯改协议」这一窗口，并给出 DCO 方向
+- `CONTRIBUTING.md` 第 5 条：营销面可核查律（规则 2 从代码平移到客户可见文本）
+- Dependabot 覆盖 pip / npm / github-actions 三条
+
+### Changed
+- 门禁退路体系：新增 `blocked` 状态与 `loop.py block`，避免循环停在需人工判断的待办上
+- 死模块门禁由 `autofix` 降级为 `block`——移动代码需要语义判断，不满足 autofix 门槛
+
+### Removed
+- `core/sqlite_store.py`：完整但从未接线的 23 行 KV 存储。零引用属死代码；如商业化确需真实 DB 后端，另立一轮重新实现并接线（git 历史可取回）
+
 
 ### Security
 - 危险操作门禁按语义判定：del-flows / mod-flows / iptables -F / link down / route del / addr del，与设备名无关。
