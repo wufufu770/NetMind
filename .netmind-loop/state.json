@@ -4,8 +4,8 @@
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 6,
   "phase": "plan",
-  "updated": "2026-10-02T21:41:48+08:00",
-  "head": "d8d423f",
+  "updated": "2026-10-02T21:42:25+08:00",
+  "head": "8c8ae00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,7 +22,7 @@
   },
   "metrics": {
     "tests_passed": 95,
-    "gates_total": 10,
+    "gates_total": 12,
     "gates_passed": 12,
     "gates_warned": 0,
     "src_lines": 8010,
