@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 14,
-  "phase": "test",
-  "updated": "2026-10-03T00:58:35+08:00",
+  "cycle": 15,
+  "phase": "plan",
+  "updated": "2026-10-03T01:35:12+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,12 +20,12 @@
     }
   },
   "metrics": {
-    "tests_collected": 147,
-    "gates_total": 18,
-    "gates_passed": 17,
+    "tests_collected": 160,
+    "gates_total": 19,
+    "gates_passed": 19,
     "gates_warned": 0,
-    "src_lines": 9708,
-    "generic_names": 176,
+    "src_lines": 10233,
+    "generic_names": 190,
     "dead_modules": 0,
     "slop_hits": 0,
     "license_present": true
@@ -198,6 +198,18 @@
       "dead_modules": 0,
       "slop_hits": 0,
       "license_present": true
+    },
+    {
+      "cycle": 15,
+      "tests_collected": 160,
+      "gates_total": 18,
+      "gates_passed": 19,
+      "gates_warned": 0,
+      "src_lines": 10233,
+      "generic_names": 190,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
     }
   ],
   "gates": [
@@ -224,7 +236,7 @@
     {
       "id": "no-ai-smell",
       "on_fail": "block",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "id": "no-dead-module",
@@ -242,11 +254,7 @@
       "status": "pass"
     }
   ],
-  "current_round": {
-    "id": "W-default-secure",
-    "title": "默认安全 + 自身可观测 + 测试可复现",
-    "deliverable": "默认不安全→默认安全：没配 token 改为只许本机（远程 403 并给出修复指引），配了 token 则所有方法含 GET 都须认证，/healthz 免认证、/metrics 需认证；token 改常数时间比对；不再默认采信 X-Forwarded-For 判 loopback；CORS 默认从 * 收紧到本地前端。新增 /healthz 与 /metrics 自身可观测性。另修一个先于本次改动就存在的真 bug：测试依赖 data/netmind_store.json 跨运行累积，单跑也失败——现每会话独立数据文件，连跑三次 147 passed。新增 15 个用例，全量 132→147。"
-  },
+  "current_round": null,
   "backlog": [
     {
       "id": "C1-auth-default-safe",
@@ -573,6 +581,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-data-durability",
+      "title": "数据保住：原子写 + 备份恢复演练",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -706,6 +722,14 @@
       "shipped": "docs/commercial-readiness-audit.md：20/55 后端源文件零测试触达（1005 行）、App.jsx 1844 行测试触达 0、全仓零压测、transaction.py 回滚逻辑零直接覆盖；诚实表 2 条仍 ⚠️（主链路遥测仍是硬编码常量、HealingAgent 动作不产生真实副作用）；四类商用硬门槛实测确认：默认配置 API 裸奔（GET 永久免认证）、无多租户无 RBAC 无速率限制、单 JSON 文件存储并发与恢复未验、无自身可观测性。结论：单机自用可以，团队内部接近，对外商业化不行，差 16-24 人日的工程距离（1-3 项为不修不能卖）。",
       "at": "2026-10-03T00:41:38+08:00",
       "based_on": "0e485f4"
+    },
+    {
+      "cycle": 15,
+      "id": "W-data-durability",
+      "title": "数据保住：原子写 + 备份恢复演练",
+      "shipped": "落盘补齐 fsync 文件 + fsync 目录项（掉电不留半截）、临时名改用 tempfile.mkstemp（原先固定 .tmp 同机两进程互相覆盖；中间试的 pid+thread_ident 方案实测 10 并发只出 7 个不同名，get_ident() 会回收复用）、落盘失败不再静默（save() 返回成败 + 记审计 + 自动保存连续失败 3 次写 error）、启动清理崩溃残留。新增 scripts/data_ops.py（backup/restore/verify/list/drill）与门禁 data-durability-drill，CI 每次真跑恢复演练并验证坏恢复源被拒。13 个新用例，全量 147→160。 CI 演练步骤改为调用 seed 子命令（原先内联多行 Python 把 YAML 写崩了）。门禁总耗时 47.65s。",
+      "at": "2026-10-03T01:35:07+08:00",
+      "based_on": "c31ca5f"
     }
   ],
   "retro": [
@@ -956,17 +980,41 @@
       "root_cause": "  ✓ docs/ARCHITECTURE.md\n  ✓ docs/API.md\n  ✓ SECURITY.md\n  ✓ CHANGELOG.md\n  ✓ docs/closed-loop-run-report.md\n  客户可见面 AI 味命中 2 项",
       "fix": "待定——本轮不记根因的门禁会原样复现",
       "at": "2026-10-03T00:54:44+08:00"
+    },
+    {
+      "cycle": 15,
+      "gate": "store(原子写三缺 + 临时名会撞)",
+      "on_fail": "manual",
+      "root_cause": "落盘三处缺：① 不 fsync 就 rename，掉电后新目录项可能指向未落盘数据 ② rename 本身不 fsync 目录项 ③ 临时名固定用 .tmp，同机两进程互相覆盖。中途我还试了「pid+thread_ident」拼名，实测 10 并发只出 7 个不同名——get_ident() 线程结束后会回收复用",
+      "fix": "① 改为 写临时→fsync 文件→rename→fsync 目录 ② 改用 tempfile.mkstemp（O_EXCL 原子唯一），不用手拼名字 ③ save() 返回成败、失败记审计、临时文件清理 ④ 自动保存连续失败 3 次写 error ⑤ 启动清理崩溃残留。教训：唯一性要么用系统提供的原子原语（mkstemp/O_EXCL），要么手拼——手拼看着对，实测才有洞",
+      "at": "2026-10-03T01:25:09+08:00"
+    },
+    {
+      "cycle": 15,
+      "gate": "ci-steps-are-executable",
+      "on_fail": "block",
+      "root_cause": "ScannerError: while scanning a simple key\n  in \"<unicode string>\", line 63, column 1:\n    from app.store import STORE; [ST ... \n    ^\ncould not find expected ':'\n  in \"<unicode string>\", line 65, column 13:\n          - name: Restore rejects a corrupt backup\n                ^",
+      "fix": "待定——本轮不记根因的门禁会原样复现",
+      "at": "2026-10-03T01:25:30+08:00"
+    },
+    {
+      "cycle": 15,
+      "gate": "tests-green",
+      "on_fail": "block",
+      "root_cause": "  /home/wff/netmind/backend/app/core/audit.py:166: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    'audit_id': f\"audit-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}\",\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n==",
+      "fix": "待定——本轮不记根因的门禁会原样复现",
+      "at": "2026-10-03T01:30:43+08:00"
     }
   ],
-  "gates_total": 18,
+  "gates_total": 19,
   "next_round": {
     "id": "C1-auth-default-safe",
     "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
     "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
     "deliverable": "",
-    "planned_at": "2026-10-03T00:41:33+08:00"
+    "planned_at": "2026-10-03T01:35:02+08:00"
   },
-  "based_on": "482cd53",
+  "based_on": "c31ca5f",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

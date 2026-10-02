@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import Dict, List, Any
 from pathlib import Path
-import atexit, json, os, re, threading, time
+import atexit, json, os, re, tempfile, threading, time
+from datetime import datetime
 from .schemas import *
 
 MAX_LOGS=2000
@@ -65,64 +66,194 @@ class PersistentStore:
             'flow_cookies': dict(self.flow_cookies),
         }
 
-    def save(self) -> None:
+    def save(self) -> bool:
+        """原子落盘。返回是否成功——失败绝不静默。
+
+        原实现是 `tmp.write_text(...)` + `tmp.replace(DATA_PATH)`。rename 在同一
+        文件系统内确实是原子的，但缺三样：
+
+        1. **fsync**：不 fsync 临时文件就 rename，掉电后新目录项可能指向尚未
+           落盘的数据，表现为文件变成 0 字节或半截。
+        2. **唯一临时名**：原实现固定用 `DATA_PATH.with_suffix('.tmp')`，同机上
+           两个进程（如服务端 + 一次 CLI 调用）同时保存会互相覆盖临时文件。
+        3. **失败被吞**：mark_dirty / 自动保存线程都是 `except: pass`，数据丢了
+           没人知道。
+
+        正确顺序：写临时文件 → fsync 文件 → rename → fsync 目录。
+        """
         with self._lock:
             payload=self.to_json()
+            text=json.dumps(payload, ensure_ascii=False, indent=2)
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = DATA_PATH.with_suffix('.tmp')
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
-        tmp.replace(DATA_PATH)
+        # 唯一临时名：用 mkstemp（O_EXCL 原子保证唯一），不用手拼
+        # 「pid + thread_ident」——CPython 的 get_ident() 在线程结束后会回收复用，
+        # 实测 10 个并发保存只产生 7 个不同名字。它靠「同一 ident 不会并发」
+        # 才安全，而那是巧合不是保证。
+        fd, tmp = tempfile.mkstemp(dir=str(DATA_PATH.parent),
+                                   prefix=f'.{DATA_PATH.name}.', suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())      # ① 数据真正落盘后再 rename
+            os.replace(tmp, DATA_PATH)
+            # ② fsync 目录项：rename 本身也要落盘，否则掉电后可能看不到新文件
+            try:
+                dfd = os.open(str(DATA_PATH.parent), os.O_RDONLY)
+                try:
+                    os.fsync(dfd)
+                finally:
+                    os.close(dfd)
+            except (OSError, AttributeError):
+                pass                         # 某些文件系统不支持目录 fsync，不阻断
+        except Exception as exc:
+            # ③ 失败不静默
+            try:
+                Path(tmp).unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                self.log('store', f'atomic save failed: {type(exc).__name__}: {exc}', 'error')
+            except Exception:
+                pass
+            return False
         self._last_save=time.time()
         self._dirty=False
+        return True
 
     def mark_dirty(self) -> None:
         with self._lock:
             self._dirty=True
         if time.time()-self._last_save >= AUTOSAVE_INTERVAL:
-            try:
-                self.save()
-            except Exception:
-                pass
+            self.save()          # save() 内部已记录失败，不再吞
 
-    def flush(self) -> None:
+    def flush(self) -> bool:
         with self._lock:
             pending=self._dirty
-        if pending:
-            self.save()
+        return self.save() if pending else True
+
+    def backup(self, target: str | Path | None = None) -> str:
+        """把当前落盘内容复制成一份带时间戳的备份，返回备份路径。
+
+        商业部署的数据保全手段：升级前、迁移前先备一份。
+        """
+        with self._lock:
+            payload=self.to_json()
+        if target is None:
+            stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            target = DATA_PATH.with_name(f'{DATA_PATH.stem}.backup-{stamp}{DATA_PATH.suffix}')
+        target = Path(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(target.parent), prefix=f'.{target.name}.', suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False, indent=2))
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, target)
+        except Exception:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return str(target)
+
+    def restore_from(self, source: str | Path) -> dict:
+        """从备份文件恢复。恢复源坏了必须报错——不能把坏数据盖到好数据上。"""
+        src = Path(source)
+        if not src.exists():
+            raise FileNotFoundError(f'备份文件不存在: {src}')
+        text = src.read_text(encoding='utf-8')
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f'备份文件不是合法 JSON，拒绝恢复（否则会用坏数据盖掉好的）: {exc}') from exc
+        if not isinstance(data, dict):
+            raise ValueError('备份文件顶层不是对象，拒绝恢复')
+        with self._lock:
+            self._apply(data)
+        self.save()
+        return {'restored_from': str(src), 'keys': len(data)}
+
+    def cleanup_stale_temps(self) -> list[str]:
+        """清理上次崩溃留下的 .tmp 残留。
+
+        正常 save/backup 都会自己清掉临时文件；只有进程被 SIGKILL 或掉电这类
+        「没机会执行清理」的情况才会留下。不清理的话它们会一直堆在数据目录里，
+        而数据目录通常是运维会去看的地方。
+        """
+        removed = []
+        try:
+            pattern = f'.{DATA_PATH.name}.*.tmp'
+            for p in DATA_PATH.parent.glob(pattern):
+                try:
+                    p.unlink()
+                    removed.append(p.name)
+                except OSError:
+                    pass
+        except Exception:
+            pass
+        return removed
 
     def start_autosave(self) -> None:
         def _loop():
+            fails = 0
             while True:
                 time.sleep(AUTOSAVE_INTERVAL)
                 try:
-                    self.flush()
-                except Exception:
-                    pass
+                    ok = self.flush()
+                    if not ok:
+                        fails += 1
+                        # 连续失败说明磁盘/权限/路径有问题。静默重试只会让人
+                        # 在数据丢了之后才发现——达到阈值就把现状记进审计。
+                        if fails >= 3:
+                            fails = 0
+                            try:
+                                self.log('store', 'autosave failed 3x consecutively; '
+                                                'data may not be persisted', 'error')
+                            except Exception:
+                                pass
+                    else:
+                        fails = 0
+                except Exception as exc:
+                    fails += 1
+                    if fails >= 3:
+                        fails = 0
+                        try:
+                            self.log('store', f'autosave loop error: {type(exc).__name__}: {exc}', 'error')
+                        except Exception:
+                            pass
         threading.Thread(target=_loop, daemon=True, name='netmind-autosave').start()
+
+    def _apply(self, raw: dict) -> None:
+        """把反序列化后的 dict 灌进内存。load 与 restore_from 共用。
+
+        单独抽出来是因为恢复路径必须与启动加载路径**完全同构**——两边各写一份
+        的话，加字段时容易只改一处，恢复出来就少字段，而且不报错。
+        """
+        self.executions.update({k: Execution(**v) for k, v in raw.get('executions', {}).items()})
+        self.logs = [LogEntry(**v) for v in raw.get('logs', [])]
+        self.approvals.update({k: Approval(**v) for k, v in raw.get('approvals', {}).items()})
+        self.telemetry = [TelemetrySnapshot(**v) for v in raw.get('telemetry', [])]
+        self.rules.update({k: Rule(**v) for k, v in raw.get('rules', {}).items()})
+        self.models.update({k: ModelConfig(**v) for k, v in raw.get('models', {}).items()})
+        self.agents.update({k: AgentConfig(**v) for k, v in raw.get('agents', {}).items()})
+        self.tools.update({k: ToolConfig(**v) for k, v in raw.get('tools', {}).items()})
+        self.workflows.update({k: WorkflowConfig(**v) for k, v in raw.get('workflows', {}).items()})
+        if raw.get('theme'):
+            self.theme = ThemeConfig(**raw['theme'])
+        self.mcp_servers.update(raw.get('mcp_servers', {}))
+        self.credentials.update({k: CredentialConfig(**{**v, 'secret_ref': '' if v.get('secret_ref') == '***' else v.get('secret_ref','')}) for k, v in raw.get('credentials', {}).items()})
+        self.templates.update(raw.get('templates', {}))
+        self.agent_schedules.update(raw.get('agent_schedules', {}))
+        self.flow_cookies.update({str(k): str(v) for k, v in raw.get('flow_cookies', {}).items()})
+        if len(self.executions) > 200:
+            self.executions = dict(list(self.executions.items())[-200:])
 
     def load(self) -> None:
         if not DATA_PATH.exists():
             return
         try:
             raw = json.loads(DATA_PATH.read_text(encoding='utf-8'))
-            self.executions.update({k: Execution(**v) for k, v in raw.get('executions', {}).items()})
-            self.logs = [LogEntry(**v) for v in raw.get('logs', [])]
-            self.approvals.update({k: Approval(**v) for k, v in raw.get('approvals', {}).items()})
-            self.telemetry = [TelemetrySnapshot(**v) for v in raw.get('telemetry', [])]
-            self.rules.update({k: Rule(**v) for k, v in raw.get('rules', {}).items()})
-            self.models.update({k: ModelConfig(**v) for k, v in raw.get('models', {}).items()})
-            self.agents.update({k: AgentConfig(**v) for k, v in raw.get('agents', {}).items()})
-            self.tools.update({k: ToolConfig(**v) for k, v in raw.get('tools', {}).items()})
-            self.workflows.update({k: WorkflowConfig(**v) for k, v in raw.get('workflows', {}).items()})
-            if raw.get('theme'):
-                self.theme = ThemeConfig(**raw['theme'])
-            self.mcp_servers.update(raw.get('mcp_servers', {}))
-            self.credentials.update({k: CredentialConfig(**{**v, 'secret_ref': '' if v.get('secret_ref') == '***' else v.get('secret_ref','')}) for k, v in raw.get('credentials', {}).items()})
-            self.templates.update(raw.get('templates', {}))
-            self.agent_schedules.update(raw.get('agent_schedules', {}))
-            self.flow_cookies.update({str(k): str(v) for k, v in raw.get('flow_cookies', {}).items()})
-            if len(self.executions) > 200:
-                self.executions = dict(list(self.executions.items())[-200:])
+            self._apply(raw)
         except Exception as exc:
             # Preserve bootability; surface the error in logs.
             self.logs.append(LogEntry(source='store', level='error', message=f'failed to load persisted store: {exc}'))

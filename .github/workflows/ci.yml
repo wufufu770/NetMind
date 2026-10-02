@@ -57,6 +57,16 @@ jobs:
         run: pip install -r backend/requirements.txt
       - name: Loop gates (含去 AI 味密度门与死模块门)
         run: python scripts/loop.py gates
+      - name: Seed data for durability drill
+        run: python3 scripts/data_ops.py seed --count 20
+      - name: Data durability drill (备份→破坏→恢复→校验)
+        run: python3 scripts/data_ops.py drill
+      - name: Restore rejects a corrupt backup
+        run: |
+          printf '{"broken": ' > /tmp/bad-backup.json
+          python3 scripts/data_ops.py restore /tmp/bad-backup.json && exit 1 || true
+          python3 scripts/data_ops.py restore /tmp/does-not-exist.json && exit 1 || true
+          echo "  两类坏恢复源都被正确拒绝"
 
   supply-chain:
     runs-on: ubuntu-latest

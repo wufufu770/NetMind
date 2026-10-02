@@ -4,6 +4,29 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- `scripts/data_ops.py`：数据保全命令 `backup` / `restore` / `verify` / `list` / `drill`。
+  `drill` 是恢复演练——备份 → 故意破坏 → 恢复 → 校验内容逐字节一致。真出事时
+  才用得到的东西，必须先演练过才知道能不能用
+- 门禁 `data-durability-drill`：在 CI 里真跑一遍完整恢复流程，并验证损坏/不存在的
+  恢复源会被拒绝（用坏数据盖好数据比不恢复更糟）
+- CI 的 `loop-gates` job 增加数据耐久性演练与坏恢复源拒绝两步
+- `test_store_durability.py`：13 个用例，覆盖半截写、并发保存、备份、恢复、容量上限
+
+### Fixed
+- **落盘缺 fsync**。原实现是 `tmp.write_text()` + `tmp.replace()`。rename 在同一
+  文件系统内确实原子，但不 fsync 临时文件就 rename，掉电后新目录项可能指向尚未落盘的
+  数据；rename 本身也要 fsync 目录项才算落盘。现在是：写临时 → fsync 文件 → rename
+  → fsync 目录
+- **临时文件名会撞**。原实现固定用 `DATA_PATH.with_suffix('.tmp')`，同机两个进程
+  （服务端 + 一次 CLI 调用）同时保存会互相覆盖。改用 `tempfile.mkstemp`（O_EXCL
+  原子保证唯一）。**中间试过「pid + thread_ident」拼名字，实测 10 个并发只产生
+  7 个不同名——CPython 的 get_ident() 在线程结束后会回收复用**，那个方案靠
+  「同一 ident 不会并发」才安全，而那是巧合不是保证
+- **落盘失败被静默吞掉**。`mark_dirty` 与自动保存线程都是 `except: pass`，数据丢了
+  没人知道。`save()` 现在返回成败，失败会记进审计日志并清理临时文件；自动保存连续
+  失败 3 次会写一条 error 日志
+- 崩溃残留的 .tmp 会在启动时清理（正常路径自己会清，只有 SIGKILL/掉电才留）
+
 - `docs/commercial-readiness-audit.md`：商用就绪度审计。结论——单机自用可以，团队内部接近，
   **对外商业化不行**。列出 20/55 源文件零测试触达、零压测、四类商用硬门槛（默认 API 裸奔 /
   无隔离无 RBAC / 单 JSON 存储并发恢复未验 / 无自身可观测性）与 16-24 人日的补齐清单

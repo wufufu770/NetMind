@@ -39,6 +39,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Frontend tests | ✅ 12 cases on extracted display helpers (node built-in runner, no test framework) |
 | Default security | ✅ Safe by default — no token ⇒ loopback-only (403); token ⇒ all methods incl. GET; `/healthz` public, `/metrics` authenticated |
 | Self observability | ✅ Real — `/healthz` + `/metrics` (p50/p95/p99 per endpoint, error counts) |
+| Data durability | ✅ Atomic write (fsync + rename + dir fsync) + `scripts/data_ops.py` backup/restore/drill; drill 在 CI 里每次真跑 |
 
 ## Vendor support
 

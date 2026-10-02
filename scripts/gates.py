@@ -348,6 +348,44 @@ assert not res['failures'], (
 """,
     ),
     Gate(
+        id='data-durability-drill',
+        desc='数据保住：原子写 + 备份/恢复演练必须在 CI 里真跑通',
+        on_fail='block',
+        check=r"""
+import json, subprocess, sys, tempfile, os
+from pathlib import Path as P
+
+td = tempfile.mkdtemp(prefix='nm-durability-')
+env = dict(os.environ, NETMIND_DATA_FILE=str(P(td) / 'store.json'))
+probe = '''
+import os, sys
+sys.path.insert(0, 'backend')
+from app.store import STORE
+for i in range(20): STORE.log('durability', 'x'*100, 'info')
+assert STORE.save() is True
+assert STORE.backup()
+'''
+r = subprocess.run([sys.executable, '-c', probe], cwd=ROOT, env=env,
+                   capture_output=True, text=True, timeout=300)
+assert r.returncode == 0, f'造数与备份失败: {r.stderr[-300:]}'
+
+# 跑真实演练：备份 → 破坏 → 恢复 → 校验
+r = subprocess.run([sys.executable, str(ROOT / 'scripts' / 'data_ops.py'), 'drill'],
+                   cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
+assert r.returncode == 0, f'恢复演练未通过: {r.stdout[-500:]}{r.stderr[-300:]}'
+
+# 坏恢复源必须被拒——用坏数据盖好数据比不恢复更糟
+bad = P(td) / 'bad.json'
+bad.write_text('{"broken": ', encoding='utf-8')
+r = subprocess.run([sys.executable, str(ROOT / 'scripts' / 'data_ops.py'), 'restore', str(bad)],
+                   cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
+assert r.returncode != 0, '损坏的备份竟被接受了——那会用坏数据盖掉好数据'
+r = subprocess.run([sys.executable, str(ROOT / 'scripts' / 'data_ops.py'), 'restore', str(P(td)/'nope.json')],
+                   cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
+assert r.returncode != 0, '不存在的备份竟被接受了'
+""",
+    ),
+    Gate(
         id='state-based-on-is-honest',
         desc='状态文件不得用自指字段冒充当前 HEAD；based_on 必须是真实存在的祖先且不漂太远',
         on_fail='block',
