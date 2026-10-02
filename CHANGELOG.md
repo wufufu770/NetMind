@@ -4,6 +4,12 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Fixed
+- 状态文件用自指字段 `head` 冒充当前 HEAD：`save()` 发生在提交**之前**，所以这个值
+  永远指向「包含本状态的 commit 的上一个」——差一个是结构性的，改不掉。改名为
+  `based_on`（本状态基于谁写下），并在 `_field_semantics` 里写明差异
+- 新门禁 `state-based-on-is-honest`：禁止 `head` 字段回归、based_on 必须是真实
+  存在的祖先、且落后 HEAD 不得超过 3 个 commit（状态快照过期了就该重跑而不是续用）
+
 - **CI 的 SBOM 步骤一直是红的，而且即使跑通也是错的**（外部复核发现，此前我一直只说「supply-chain 已修」）：
   ① `cyclonedx-py environment --outfile x.json -o frontend -t python` 在 cyclonedx-bom 7.5.0 下退出码 2——`-o` 是 `--output-file`（要文件路径，给目录报 can't open 'frontend': Is a directory），`-t` 根本不是合法参数
   ② 更严重：supply-chain job **从不安装 backend/requirements.txt**，用 `environment` 子命令扫的是 runner 环境（pip/pip-audit/cyclonedx-bom），**不是项目依赖**。绿的 SBOM 比红的更危险——采购会拿它当数

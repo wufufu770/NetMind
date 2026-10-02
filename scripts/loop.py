@@ -40,8 +40,12 @@ def load() -> dict:
 
 
 def save(st: dict) -> None:
+    # 字段名是 based_on 不是 head：save() 发生在提交**之前**，所以这里记下的
+    # HEAD 永远是「本状态基于哪个 commit 写下的」，不可能是「包含本状态的
+    # 那个 commit」——那是自指的，结构上做不到。叫 head 会让人以为它标识
+    # 当前状态所在 commit，实际总是差一个。
     st['updated'] = datetime.now(CST).isoformat(timespec='seconds')
-    st['head'] = subprocess.run(
+    st['based_on'] = subprocess.run(
         ['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT,
         capture_output=True, text=True).stdout.strip()
     STATE_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -292,7 +296,7 @@ def cmd_state(st: dict) -> int:
     st['rounds'].append({
         'cycle': st['cycle'], 'id': cr['id'], 'title': cr['title'],
         'shipped': cr.get('deliverable', ''), 'at': datetime.now(CST).isoformat(timespec='seconds'),
-        'head': st['head'],
+        'based_on': st.get('based_on'),
     })
     hit = False
     for b in st['backlog']:

@@ -2,10 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 10,
+  "cycle": 11,
   "phase": "plan",
-  "updated": "2026-10-02T23:12:08+08:00",
-  "head": "8a869d5",
+  "updated": "2026-10-02T23:15:45+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,10 +21,10 @@
   },
   "metrics": {
     "tests_collected": 124,
-    "gates_total": 16,
-    "gates_passed": 16,
+    "gates_total": 17,
+    "gates_passed": 17,
     "gates_warned": 0,
-    "src_lines": 8819,
+    "src_lines": 8855,
     "generic_names": 174,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -147,6 +146,18 @@
       "gates_passed": 16,
       "gates_warned": 0,
       "src_lines": 8819,
+      "generic_names": 174,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 11,
+      "tests_collected": 124,
+      "gates_total": 17,
+      "gates_passed": 17,
+      "gates_warned": 0,
+      "src_lines": 8855,
       "generic_names": 174,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -402,6 +413,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-selfref-honesty",
+      "title": "状态文件自指字段的诚实化",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -428,7 +447,7 @@
       "title": "法务与信任地基 + 无限迭代循环协议落地",
       "shipped": "LICENSE(MIT) · CLA.md 草案 · CONTRIBUTING 律5(营销面可核查律)+循环协议段 · .netmind-loop/protocol.md + state.json · scripts/loop.py · scripts/gates.py · scripts/copy_lint.py · CI 新增 loop-gates 与 supply-chain 两 job · .github/dependabot.yml · 删除死模块 core/sqlite_store.py",
       "at": "2026-10-02T17:05:00+08:00",
-      "head": "aa30fe9"
+      "based_on": "aa30fe9"
     },
     {
       "cycle": 2,
@@ -436,7 +455,7 @@
       "title": "config-diff 变更提案（GitOps-first 形态）",
       "shipped": "core/config_diff.py 纯函数：结构化 diff（增/删/改/不变）+ 危险项前置标注 + 可评审 Markdown 渲染；8 个测试；README 诚实表新增两行（config-diff 标 Real、post-apply 验证标 Not implemented）；CHANGELOG [Unreleased] 补记",
       "at": "2026-10-02T17:07:24+08:00",
-      "head": "aa30fe9"
+      "based_on": "aa30fe9"
     },
     {
       "cycle": 3,
@@ -444,8 +463,8 @@
       "title": "真实数据实验台：把遥测从硬编码常量换成实测",
       "shipped": "scripts/lab.sh（docker 起双 FRR + 客户端，布真两跳 L3，可注 netem 拥塞与断链）· diagnose/lab_collector.py（解析真实 ICMP 报文与网卡计数器）· tests/fixtures/lab/（三态抓包原文 + 实测带宽 JSON）· test_real_lab.py（11 个基于真实抓取的回归）· 修 telemetry.py 硬编码置信度（违反规则 2）与绝对 Mbps 阈值 · schemas.py 开放 source 的 real/lab 取值 · 新增 real-data-not-faked 门禁",
       "at": "2026-10-02T17:55:00+08:00",
-      "head": "0dfa174",
-      "plan_deviation": "本轮 plan 选的是 W2-multivendor（三厂商真实接入），实际做的是真实数据实验台。偏离理由：先要有可测的真实拓扑，才谈得上验证三厂商；且调研发现的「置信度是编造常量」这一缺陷必须用真数据才能证实，模拟器造不出证据。W2-multivendor 保持 pending 未动。"
+      "plan_deviation": "本轮 plan 选的是 W2-multivendor（三厂商真实接入），实际做的是真实数据实验台。偏离理由：先要有可测的真实拓扑，才谈得上验证三厂商；且调研发现的「置信度是编造常量」这一缺陷必须用真数据才能证实，模拟器造不出证据。W2-multivendor 保持 pending 未动。",
+      "based_on": "0dfa174"
     },
     {
       "cycle": 4,
@@ -453,8 +472,8 @@
       "title": "空轮：仅做记录更正与门禁复跑，无新交付",
       "shipped": "",
       "at": "2026-10-02T18:00:00+08:00",
-      "head": "0dfa174",
-      "note": "协议要求「每轮产出可验证的增量」。本轮是把轮3 的留档按实更正（plan 选的是 W2-multivendor、实做的是真实数据实验台）、补记两条 retro、再跑一次门禁确认，**没有新的可验证增量**。按纪律如实记为空轮，不冒充 W2-multivendor。W2-multivendor 保持 pending。"
+      "note": "协议要求「每轮产出可验证的增量」。本轮是把轮3 的留档按实更正（plan 选的是 W2-multivendor、实做的是真实数据实验台）、补记两条 retro、再跑一次门禁确认，**没有新的可验证增量**。按纪律如实记为空轮，不冒充 W2-multivendor。W2-multivendor 保持 pending。",
+      "based_on": "0dfa174"
     },
     {
       "cycle": 5,
@@ -462,7 +481,7 @@
       "title": "真实闭环：注入→诊断→处置→重测→验证",
       "shipped": "diagnose/closed_loop.py（真闭环：注入→诊断→处置→重测→验证；三条硬规则——没重测不报 success、没改善触发回滚、探针失败记异常）+ diagnose/lab_adapter.py（真调 tc/ip link/ping）+ POST /api/lab/loop 端点（实验台不可用时 503，不降级成模拟）+ test_closed_loop.py（8 个反例优先的回归）+ docs/closed-loop-run-report.md（三场景真实跑测，含「不能支撑的主张」清单）+ 修 HealingReport.success 默认 True 的假成功 + 修 test_fault_heal（它固化了假成功）",
       "at": "2026-10-02T17:54:50+08:00",
-      "head": "03bc2c7"
+      "based_on": "03bc2c7"
     },
     {
       "cycle": 6,
@@ -470,7 +489,7 @@
       "title": "全量测试矩阵 + 依赖漏洞清零 + 前端首次有测试",
       "shipped": "全量矩阵（对齐 CI 定义的执行面）：后端 3.11/3.12 各 95 passed、前端 npm test 12 passed、npm run build 通过、validate_project 27 项 exit 0、pip-audit 0 漏洞、npm audit 0 漏洞。依赖升级消除全部已知漏洞（starlette 19 条 CVE + nanoid/postcss 高危）。前端首次有测试：抽出 lib/format.js + 12 用例，App.jsx 改为 import（否则测的是副本）。修 validate_project 在新版 FastAPI 上抛 AttributeError、compactLabel 占位符失效、CliRunner mix_stderr 在 click 8.2+ 已移除。新门禁 frontend-has-tests / deps-pinned-and-audited。",
       "at": "2026-10-02T21:41:48+08:00",
-      "head": "d8d423f"
+      "based_on": "d8d423f"
     },
     {
       "cycle": 7,
@@ -478,7 +497,7 @@
       "title": "补齐 CI 矩阵（py3.10）+ 真实路由数据 + 修 lab.sh 三个自埋 bug",
       "shipped": "Python 3.10 容器全量 95 passed（CI 矩阵三格全齐）。真实 FRR/zebra 路由表 fixture 两条，含 K/C/S 真实路由行。修 lab.sh 三个自埋 bug：缺 SYS_ADMIN 致 zebra 静默失败、客户端 IP 冲突、set -e 致全断场景测不出来。新门禁 routing-data-is-real。报告与诚实表已更正「zebra 未起」的说法。",
       "at": "2026-10-02T21:50:55+08:00",
-      "head": "6d01598"
+      "based_on": "6d01598"
     },
     {
       "cycle": 8,
@@ -486,7 +505,7 @@
       "title": "把「只读设备采集 ✅ Real」验成真的",
       "shipped": "对着真实 SSH 端点（linuxserver/openssh-server 容器）跑通 NetMind 自己的采集路径，抓到驱动映射三处错误并修掉：映射到 napalm 不存在的 linux 驱动、未知 kind 静默兜底成 Arista EOS、nokia/srl 两个驱动在声明依赖下永远不可用。新增 netmiko 直连路径（linux_collect.py）使 Linux/FRR 设备的只读采集真正成立。修用法文本被当数据存储、send_command 签名不兼容。新增 21 个测试，真实采集结果固化为 fixture。",
       "at": "2026-10-02T22:11:42+08:00",
-      "head": "9a60681"
+      "based_on": "9a60681"
     },
     {
       "cycle": 9,
@@ -494,7 +513,7 @@
       "title": "把「多厂商」从一句声明变成可核查的矩阵",
       "shipped": "厂商能力矩阵 diagnose/vendor_matrix.py（8 家，每家带验证等级）+ GET /api/vendors 与 /api/vendors.md。README 不再自述厂商清单只引用矩阵。补 Cisco 系 kind 到映射表——矩阵声称支持而代码没有，是测试当场抓到的漂移。新门禁 vendor-matrix-is-authoritative + 8 个矩阵测试，全量 116→124。实测：ceos/vyos/junos 镜像在本环境不可达，故 5 家停在 declared、2 家 blocked，只有 Linux/FRR 是 verified。",
       "at": "2026-10-02T22:40:07+08:00",
-      "head": "0dacd27"
+      "based_on": "0dacd27"
     },
     {
       "cycle": 10,
@@ -502,7 +521,15 @@
       "title": "外部复核发现的 CI 假绿 + 指标失真",
       "shipped": "修 CI 的 SBOM 步骤：cyclonedx-py 7.5.0 下 -o 语义变更与 -t 不存在导致退出码 2，且 job 从不装 requirements.txt 导致 SBOM 抓的是 runner 环境而非项目依赖。改用 requirements 子命令从声明文件生成。新门禁 sbom-covers-declared-deps 会真跑 CI 里写的命令并校验产物覆盖声明依赖（已反验有效）。另修 loop.py 只读命令写盘、cmd_metrics 写错层级、指标名实不符（tests_passed→tests_collected 且改用 pytest --collect-only）。state.json 三处陈旧字段已刷新。",
       "at": "2026-10-02T23:12:08+08:00",
-      "head": "8a869d5"
+      "based_on": "8a869d5"
+    },
+    {
+      "cycle": 11,
+      "id": "W-selfref-honesty",
+      "title": "状态文件自指字段的诚实化",
+      "shipped": "复核确认 SBOM 步骤、state.json 三处陈旧、只读命令写盘均已修复。进一步发现 head 字段的结构性自指问题（save() 在提交前跑，永远差一个 commit），改名为 based_on 并在 _field_semantics 写明差异。新门禁 state-based-on-is-honest 禁止 head 回归、校验 based_on 是真实祖先且落后不超过 3 个 commit。已双向反验：塞回 head 被拦、based_on 指向不存在的 commit 被拦、正常值放行。",
+      "at": "2026-10-02T23:15:45+08:00",
+      "based_on": "15b7f36"
     }
   ],
   "retro": [
@@ -705,14 +732,27 @@
       "root_cause": "tests_passed 实际数的是 def test_ 定义个数，parametrize 展开的用例没算（119 vs 实际 124），且「定义数」既不是用例数也不是通过数；cmd_metrics 又把 gates_total 写到顶层 st 而打印 metrics 里的，导致 metrics.gates_total 永远停在 15（实际 16）",
       "fix": "① 改用 pytest --collect-only 的权威计数并更名为 tests_collected ② gates_total 写进 metrics 再同步顶层 ③ 教训：指标的名字本身就是一条对外声明；名字与算法不符时，看板比没有更糟",
       "at": "2026-10-02T23:11:41+08:00"
+    },
+    {
+      "cycle": 11,
+      "gate": "state(自指字段)",
+      "on_fail": "manual",
+      "root_cause": "state.json 用 head 字段标识状态，但 save() 发生在提交之前，所以这个值永远指向「包含本状态的 commit 的上一个」——差一个是结构性的，改不掉。复核时发现提交值 8a869d5 而 HEAD 是 15b7f36，正是这个成因",
+      "fix": "① 改名 based_on（本状态基于谁写下，不是本状态在哪个 commit 上）② _field_semantics 字段写明差异——改个名不说理由，下个人还是会当 head 读 ③ 门禁校验：禁止 head 回归、based_on 须为真实祖先、落后不超过 3 个 commit ④ 教训：自指的元数据字段该改名而不是补值；补值只会让下一个人再踩一次",
+      "at": "2026-10-02T23:14:38+08:00"
     }
   ],
-  "gates_total": 16,
+  "gates_total": 17,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T23:12:03+08:00"
+    "planned_at": "2026-10-02T23:15:41+08:00"
+  },
+  "based_on": "15b7f36",
+  "_field_semantics": {
+    "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
+    "updated": "本文件最后一次写盘时间（+0800）"
   }
 }

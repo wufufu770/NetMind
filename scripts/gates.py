@@ -321,6 +321,38 @@ assert not bad, '未钉版本的依赖: ' + '; '.join(bad)
 """,
     ),
     Gate(
+        id='state-based-on-is-honest',
+        desc='状态文件不得用自指字段冒充当前 HEAD；based_on 必须是真实存在的祖先且不漂太远',
+        on_fail='block',
+        check=r"""
+import json, subprocess
+st = json.loads((LOOP_DIR / 'state.json').read_text(encoding='utf-8'))
+
+# 1) 不得再有 head 字段：save() 在提交前跑，它永远指向上一个 commit，
+#    叫 head 会让人以为它标识当前状态所在 commit。
+assert 'head' not in st, 'state.json 仍有 head 字段——该字段结构上无法自指，会永远差一个 commit'
+assert 'based_on' in st, '缺 based_on 字段'
+
+# 2) based_on 必须是真实 commit
+sha = st['based_on']
+r = subprocess.run(['git', 'cat-file', '-e', sha + '^{commit}'],
+                   cwd=ROOT, capture_output=True)
+assert r.returncode == 0, f'based_on={sha} 不是仓库里存在的 commit'
+r2 = subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'HEAD'],
+                    cwd=ROOT, capture_output=True)
+assert r2.returncode == 0, f'based_on={sha} 不是当前 HEAD 的祖先'
+
+# 3) 不得漂太远：状态文件是给接手的人看的，差十几个 commit 就过期了
+n = int(subprocess.run(['git', 'rev-list', '--count', sha + '..HEAD'],
+                       cwd=ROOT, capture_output=True, text=True).stdout.strip() or 0)
+assert n <= 3, f'based_on 落后 HEAD {n} 个 commit（>3）——状态快照已过期，接手的人会读到错的状态'
+
+# 4) 字段语义必须写明，否则下个人还是会当 head 读
+sem = st.get('_field_semantics') or {}
+assert 'based_on' in sem, 'state.json 未记录 based_on 的语义——字段改名却不说理由等于没改'
+""",
+    ),
+    Gate(
         id='sbom-covers-declared-deps',
         desc='CI 的 SBOM 步骤真能跑，且产出的 SBOM 覆盖项目声明的依赖（不是 runner 环境）',
         on_fail='block',
