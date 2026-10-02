@@ -103,6 +103,10 @@ def main() -> int:
     td = tempfile.mkdtemp(prefix='netmind-load-')
     os.environ['NETMIND_DATA_FILE'] = str(Path(td) / 'store.json')
     os.environ.pop('NETMIND_ADMIN_TOKEN', None)
+    # 压测量的是应用层与存储层，不是限流器。限流开着的话写请求会在 10 次后
+    # 全部变成 429，测出来的就不是系统的真实承压能力了。
+    # 限流本身对吞吐的影响单独说明：write 组 5/s 突发 10，即持续写上限约 5 次/秒。
+    os.environ['NETMIND_RATE_LIMIT'] = 'off'
     sys.path.insert(0, str(ROOT / 'backend'))
 
     from fastapi.testclient import TestClient
@@ -116,7 +120,9 @@ def main() -> int:
     c.post('/api/experiment/fault', json={'kind': 'normal'})     # 预热
 
     scenarios = []
-    print(f'\n  并发压测：{a.workers} 线程 × 每线程 {a.per_worker} 次\n')
+    print(f'\n  并发压测：{a.workers} 线程 × 每线程 {a.per_worker} 次')
+    print('  注：本次压测关闭了速率限制（测的是应用+存储承压，不是限流器）。')
+    print('      限流开着时 write 组持续上限约 5 次/秒、突发 10。\n')
     scenarios.append(run(factory, '读：高频 GET telemetry', 'GET',
                           '/api/telemetry/latest', workers=a.workers, per_worker=a.per_worker))
     scenarios.append(run(factory, '读：高频 GET vendors', 'GET', '/api/vendors',

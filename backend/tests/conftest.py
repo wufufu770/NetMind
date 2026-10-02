@@ -30,6 +30,9 @@ import tempfile
 # 必须在任何 app.* 导入之前设好——store 在模块导入期就会读这个变量
 _TMP = tempfile.mkdtemp(prefix='netmind-test-data-')
 os.environ['NETMIND_DATA_FILE'] = os.path.join(_TMP, 'store.json')
+# 限流默认关：业务测试做的是 CRUD 往返，一个用例里的合法写操作会超过突发上限，
+# 让它们跟限流器打架只会掩盖真实失败。限流本身由 test_ratelimit.py 显式开启来测。
+os.environ['NETMIND_RATE_LIMIT'] = 'off'
 
 import pytest  # noqa: E402
 

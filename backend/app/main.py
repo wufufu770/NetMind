@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .core import access
+from .core import ratelimit
 from .core import observability as obs
 from .store import STORE
 from . import __version__
@@ -29,6 +30,20 @@ async def auth_gate(request, call_next):
                          'hint': '设置 NETMIND_ADMIN_TOKEN 后用 Authorization: Bearer <token>；'
                                  '或设置 NETMIND_ALLOW_ANON_READONLY=true 显式开启匿名只读'},
                         status_code=d.status)
+
+
+@app.middleware('http')
+async def rate_limit(request, call_next):
+    # 限流在鉴权之前：未授权的洪水请求同样要挡，不能让它先打到业务逻辑。
+    key = access._client_host(request) or 'unknown'
+    group = ratelimit.classify(request.method, request.url.path)
+    ok, info = ratelimit.allow(key, group)
+    if not ok:
+        return JSONResponse(
+            {'error': 'rate limit exceeded', 'group': info['group'],
+             'limit_per_second': info['limit'], 'burst': info['burst']},
+            status_code=429, headers={'Retry-After': str(info['retry_after'])})
+    return await call_next(request)
 
 
 @app.middleware('http')

@@ -82,6 +82,29 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/metrics
 
 `/metrics` 给 p50/p95/p99（按路由）、4xx/5xx 计数、uptime。零外部依赖——自托管工具不该为了「看自己」再拉一个 Prometheus client 进来。
 
+## 6.5 速率限制
+
+默认开启，按来源限流（进程内令牌桶，零外部依赖）：
+
+| 组 | 持续 | 突发 | 覆盖 |
+|---|---|---|---|
+| write | 5/s | 10 | POST / PUT / PATCH / DELETE |
+| read | 50/s | 100 | GET / HEAD / OPTIONS |
+| public | 5/s | 10 | `/healthz` 等探活路径 |
+
+超限返回 429 + `Retry-After`。限流在**鉴权之前**——未授权的洪水请求同样要挡，让它先打到业务逻辑等于给攻击者一个免费的压力放大器。
+
+**批量导入时关掉**：
+
+```bash
+NETMIND_RATE_LIMIT=off
+```
+
+一次导入几十条策略是正常运维动作，被 429 挡下是纯粹的伤害。
+
+**已知限制**：限流状态**只在进程内**。多 worker 部署下每个 worker 各有一份桶，
+实际阈值会放大到 worker 数倍——和第 3 节的单 worker 约束是同一个根因。
+
 ## 7. 接真实设备
 
 默认 `NETMIND_DRIVER=simulation`，所有命令干跑，不碰任何设备。

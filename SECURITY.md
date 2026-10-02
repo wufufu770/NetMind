@@ -15,7 +15,10 @@ NetMind is a **local-first network operations tool**. Understand what it can tou
 
 ## Known limitations
 
-- The HTTP API has no rate limiting or per-endpoint RBAC. Do not expose it to untrusted networks.
+- The HTTP API has **no per-endpoint RBAC**. Rate limiting **is** in place (per-source token
+  buckets; `NETMIND_RATE_LIMIT=off` disables it for bulk import) but the bucket state is
+  in-process only, so a multi-worker deployment multiplies the effective limit. See
+  `docs/DEPLOY.md` §3 and §6.5.
 - Rollback paths bypass the "dangerous command" gate by design (they must be able to undo changes); deny-keywords still apply.
 - Credentials live in the store as **masked references**: `secret_ref` values are redacted (`***`) in the persisted JSON file and in every read endpoint. Point `secret_ref` at your vault path; provide real secrets via environment variables at runtime.
 

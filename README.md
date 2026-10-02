@@ -43,6 +43,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Rollback semantics | ✅ Covered — rollback only touches *applied* commands; cookies released after rollback; security-blocked ⇒ no rollback, driver-failed ⇒ conservative rollback |
 | Test reproducibility | ✅ Gate `tests-are-reproducible` runs the suite twice; same pass count required |
 | Concurrency | ✅ 20×20=1040 requests, **0 errors**, data intact; latency baseline in `docs/load-test-baseline.md` (known limit: single-process only) |
+| Rate limiting | ✅ Per-source token buckets (write 5/s, read 50/s); `NETMIND_RATE_LIMIT=off` for bulk import; known limit: in-process only (multi-worker multiplies the limit) |
 
 ## Vendor support
 

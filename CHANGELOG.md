@@ -4,6 +4,12 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- 速率限制：按来源的进程内令牌桶（write 5/s·突发 10、read 50/s、public 5/s），
+  补上 `SECURITY.md` 自认的缺口之一。超限 429 + `Retry-After`；**放在鉴权之前**——
+  未授权的洪水请求同样要挡。`NETMIND_RATE_LIMIT=off` 供批量导入
+- `test_ratelimit.py` 10 例：分组、窗口滑动、来源隔离、读松写紧、可关闭、
+  超限 429 + Retry-After、限流先于鉴权、探活不被业务流量挤掉
+
 - `docs/DEPLOY.md`：自托管部署指南。先决定访问边界 → 起服务 → **必须单 worker** →
   数据在哪怎么保 → 对外暴露要点 → 探活 → 接真实设备 → 故障排查表。
   每一节的关键命令都实测过

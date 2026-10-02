@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 18,
+  "cycle": 19,
   "phase": "plan",
-  "updated": "2026-10-03T02:33:58+08:00",
+  "updated": "2026-10-03T02:56:39+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,11 +20,11 @@
     }
   },
   "metrics": {
-    "tests_collected": 171,
+    "tests_collected": 181,
     "gates_total": 21,
     "gates_passed": 21,
     "gates_warned": 0,
-    "src_lines": 10777,
+    "src_lines": 11015,
     "generic_names": 190,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -242,6 +242,18 @@
       "gates_passed": 21,
       "gates_warned": 0,
       "src_lines": 10777,
+      "generic_names": 190,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 19,
+      "tests_collected": 181,
+      "gates_total": 21,
+      "gates_passed": 21,
+      "gates_warned": 0,
+      "src_lines": 11015,
       "generic_names": 190,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -649,6 +661,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-ratelimit",
+      "title": "速率限制 —— 补上 SECURITY.md 自认的缺口",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -814,6 +834,14 @@
       "shipped": "docs/DEPLOY.md 八个章节：访问边界决策表、启动、**必须单 worker**（压测暴露的硬约束）、数据保全命令、对外暴露要点、探活监控、接真实设备、故障排查表。每节关键命令实测过。docker-compose 补注释说明 token 留空是安全默认值。",
       "at": "2026-10-03T02:33:26+08:00",
       "based_on": "4ac6c0f"
+    },
+    {
+      "cycle": 19,
+      "id": "W-ratelimit",
+      "title": "速率限制 —— 补上 SECURITY.md 自认的缺口",
+      "shipped": "按来源的进程内令牌桶：write 5/s·突发10、read 50/s、public 5/s；超限 429+Retry-After；刻意放在鉴权之前（未授权洪水请求同样要挡）。NETMIND_RATE_LIMIT=off 供批量导入。10 个测试覆盖分组/窗口滑动/来源隔离/读松写紧/可关闭/429/限流先于鉴权/探活不被挤掉。SECURITY.md 的「无速率限制」已更新（RBAC 那半条仍在 backlog）。过程中修了两处：限流值对合法批量操作偏紧（13 条既有测试挂）、init_from_env 在导入期改全局导致顺序依赖（同代码随机失败）——改为每次判定时读 env。",
+      "at": "2026-10-03T02:56:11+08:00",
+      "based_on": "3207c16"
     }
   ],
   "retro": [
@@ -1112,6 +1140,14 @@
       "root_cause": "并发压测暴露了「多 worker 会互相覆盖」，这是必须在部署文档里写明的硬约束——埋着的话，第一个用 --workers N 的用户会丢数据，且没人知道为什么",
       "fix": "① docs/DEPLOY.md 第 3 节单列为「⚠️ 必须单 worker」，说明 RLock 只护进程内 ② 给出替换路径（store.to_json/_apply 已把数据访问收敛成接缝）③ docker-compose 补注释说明 token 留空是安全默认值。教训：已知的坑要么修掉，要么写进部署者第一眼能看见的地方",
       "at": "2026-10-03T02:31:36+08:00"
+    },
+    {
+      "cycle": 19,
+      "gate": "ratelimit(限流值对合法批量操作偏紧 + 导入期全局状态引发顺序依赖)",
+      "on_fail": "manual",
+      "root_cause": "① 加限流后 13 条既有测试挂：单个 CRUD 往返测试的合法写操作就超过我设的 10 次突发上限。说明该值对批量场景偏紧 ② init_from_env() 在 main.py 导入期改模块全局，导致「谁先导入谁说了算」——同代码有时限流有时不限，测试里表现为随机失败",
+      "fix": "① 引入 NETMIND_RATE_LIMIT=off 供批量导入（一次导几十条策略是正常运维动作，429 挡它是纯伤害）② 限流判定改为每次读 env 而非导入期缓存，彻底消除顺序依赖 ③ 业务测试默认关限流、限流测试显式开启 ④ 压测显式关限流并在输出里说明限流对吞吐的影响。教训：限流值是产品决策不是技术细节——设太紧比不设更糟",
+      "at": "2026-10-03T02:54:53+08:00"
     }
   ],
   "gates_total": 21,
@@ -1120,9 +1156,9 @@
     "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
     "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
     "deliverable": "",
-    "planned_at": "2026-10-03T02:33:20+08:00"
+    "planned_at": "2026-10-03T02:56:06+08:00"
   },
-  "based_on": "4ac6c0f",
+  "based_on": "3207c16",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
