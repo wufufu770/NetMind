@@ -57,7 +57,24 @@ class SSHDriver(NetworkDriver):
         if not self.host or not self.username:
             return {'supported': False, 'reason': 'credentials missing: set NETMIND_SSH_* environment variables'}
         try:
-            napalm_device=os.getenv('NETMIND_NAPALM_DRIVER', self.device_type)
+            # 不再把 self.device_type 直接当 napalm 驱动名——device_type 是 netmiko
+            # 的取值（cisco_ios / linux / junos …），napalm 的驱动名是另一套
+            # （eos / ios / junos / nxos …），linux 在 napalm 里根本不存在。
+            # 这与 diagnose/drivers.py 修的是同一个 bug 的两个副本：那次修了
+            # 诊断路径，这条下发路径漏了。统一走 pick_driver。
+            from ..diagnose.drivers import driver_available, pick_driver
+            override=os.getenv('NETMIND_NAPALM_DRIVER', '').strip()
+            if override:
+                napalm_device=override
+                kind, reason = napalm_device, ''
+            else:
+                napalm_device, reason = pick_driver(self.device_type)
+            if not napalm_device:
+                return {'supported': False,
+                        'reason': f'device_type={self.device_type} 没有对应的 napalm 驱动——{reason}'}
+            ok, why = driver_available(napalm_device)
+            if not ok:
+                return {'supported': False, 'reason': f'napalm 驱动 {napalm_device} 不可用：{why}'}
             device=get_network_driver(napalm_device)(hostname=self.host, username=self.username, password=self.password, optional_args={'port': self.port})
             device.open()
             try:
@@ -65,9 +82,9 @@ class SSHDriver(NetworkDriver):
                 interfaces=device.get_interfaces()
             finally:
                 device.close()
-            return {'supported': True, 'host': self.host, 'facts': facts, 'interfaces': interfaces}
+            return {'supported': True, 'host': self.host, 'driver': napalm_device, 'facts': facts, 'interfaces': interfaces}
         except Exception as exc:
-            return {'supported': False, 'reason': f'collection failed: {exc}'}
+            return {'supported': False, 'reason': f'collection failed: {type(exc).__name__}: {exc}'}
 
     def snapshot(self) -> dict:
         return {'driver': self.name, 'real': self.real, 'host': self.host, 'connected': self._connection is not None, 'real_commands_enabled': _real_commands_enabled()}

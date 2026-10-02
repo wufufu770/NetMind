@@ -4,6 +4,11 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- SBOM 写法选型记录（`docs/sbom-choice.md`）：实测 `cyclonedx-py environment` 与
+  `requirements` 在 CI 那种「只装了扫描器、没装项目依赖」的干净环境下的差别。
+  结论：前者退出码 0 但产物 50 个组件全是扫描器自己的传递依赖，**NetMind 依赖一个都没有**；
+  后者 12 个组件正好是声明依赖。绿但空的 SBOM 比红的更危险——采购会拿它当数
+
 - `scripts/ci_audit.py` + 门禁 `ci-steps-are-executable`：**把 ci.yml 里每条可实跑的
   命令拿过来真跑一遍**。用 PyYAML 真解析（手写正则只认出块标量 `run: |`，
   内联的 `run: pytest -q` 全漏，那正是最该跑的）；按命令逐条过滤掉装依赖的部分

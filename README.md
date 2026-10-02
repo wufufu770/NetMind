@@ -33,7 +33,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Offline rule engine + mock model | ✅ Real |
 | Real LLM calls | ✅ Real (API key required) |
 | Topology & telemetry data | ⚠️ Simulated generator |
-| Policy deployment on devices | ⚠️ Dry-run by default; real SSH/NETCONF behind `NETMIND_ENABLE_REAL_COMMANDS=true` |
+| Policy deployment on devices | ✅ Real — 真 SSH 下发与真回滚已在真实容器上验证（写入→读回确认→回滚→确认失效）；⚠️ 仍默认 dry-run，需显式 `NETMIND_ENABLE_REAL_COMMANDS=true` + 凭据 |
 | Read-only device collection / audit | ✅ Real — 能力矩阵见 `diagnose/vendor_matrix.py`（`GET /api/vendors`）；每家厂商带**验证等级**，未知型号**不猜驱动**、如实拒绝 |
 | Dependency vulnerabilities | ✅ 0 known (`pip-audit` + `npm audit`, both in CI) |
 | Frontend tests | ✅ 12 cases on extracted display helpers (node built-in runner, no test framework) |

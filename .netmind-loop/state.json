@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 12,
+  "cycle": 13,
   "phase": "plan",
-  "updated": "2026-10-02T23:25:00+08:00",
+  "updated": "2026-10-02T23:37:29+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,11 +20,11 @@
     }
   },
   "metrics": {
-    "tests_collected": 124,
+    "tests_collected": 132,
     "gates_total": 18,
     "gates_passed": 18,
     "gates_warned": 0,
-    "src_lines": 9066,
+    "src_lines": 9234,
     "generic_names": 174,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -170,6 +170,18 @@
       "gates_passed": 18,
       "gates_warned": 0,
       "src_lines": 9066,
+      "generic_names": 174,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 13,
+      "tests_collected": 132,
+      "gates_total": 18,
+      "gates_passed": 18,
+      "gates_warned": 0,
+      "src_lines": 9234,
       "generic_names": 174,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -441,6 +453,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-real-deploy",
+      "title": "真下发与真回滚在真实设备上验证",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -558,6 +578,14 @@
       "shipped": "scripts/ci_audit.py：用 PyYAML 真解析 ci.yml（手写正则漏掉内联 run 块），按命令逐条过滤装依赖部分（npm ci && npm test 原本整块被当 install 跳过），模拟 setup-python 把 venv 放上 PATH。10 步中 7 步实跑全过、3 步按类别跳过。门禁 ci-steps-are-executable 已接入，已反验能抓当初的 SBOM bug。跳过 loop-gates 那步以避免门禁自递归。",
       "at": "2026-10-02T23:23:20+08:00",
       "based_on": "b52625d"
+    },
+    {
+      "cycle": 13,
+      "id": "W-real-deploy",
+      "title": "真下发与真回滚在真实设备上验证",
+      "shipped": "修 ssh_driver.collect()（把 netmiko device_type 当 napalm 驱动名的第二个副本）与映射表漏掉整套 netmiko 拼法。对真实容器（192.168.1.30:2222）跑通真下发：写入 /tmp/netmind-probe → 读回确认落到设备 → rm 回滚 → 确认失效。新增 8 个测试，全量 124→132。诚实表「Policy deployment on devices」升级为 ✅ Real。另建 docs/sbom-choice.md 记录 environment 与 requirements 两种写法的实测差别。",
+      "at": "2026-10-02T23:36:06+08:00",
+      "based_on": "862466f"
     }
   ],
   "retro": [
@@ -776,6 +804,14 @@
       "root_cause": "手写正则解析只认出块标量 run: |，内联的 run: pytest -q 全漏；按首个 token 分类把 npm ci && npm test 整块当 install 跳过；直接 bash -c 跑但没把 venv 放上 PATH，python/pytest/pip-audit 全报「命令找不到」，把真失败淹没在环境差异里",
       "fix": "① 改用 PyYAML 真解析（已在 requirements.txt 里，无额外成本）② 按 && 与行拆分命令，逐条过滤 install ③ 模拟 setup-python 把 sys.executable 的 bin 目录加到 PATH ④ 显式跳过 loop-gates 步以免门禁自递归。教训：自建校验工具本身必须先被校验——这三条都是第一次跑就暴露的",
       "at": "2026-10-02T23:22:27+08:00"
+    },
+    {
+      "cycle": 13,
+      "gate": "drivers(同源不同物+漏一整套词汇)",
+      "on_fail": "manual",
+      "root_cause": "上一轮修 diagnose/drivers.py 时只当它是一处 bug，实际是两个：① ssh_driver.collect() 是同一个 bug 的第二个副本（把 netmiko device_type 当 napalm 驱动名）② 映射表只按 containerlab 的 kind 建表，而 NETMIND_SSH_DEVICE_TYPE 走的是 netmiko 拼法（cisco_ios/arista_eos），只按一套建表另一套入口全落空",
+      "fix": "① 两个入口统一走 pick_driver ② KIND_TO_DRIVER 补齐 netmiko 拼法 ③ 教训：修 bug 时要先问「还有哪些地方有同一段逻辑」以及「输入的词汇表是不是只有一套」——我修了 A 入口就以为修完了，B 入口还带着同一个错",
+      "at": "2026-10-02T23:34:04+08:00"
     }
   ],
   "gates_total": 18,
@@ -784,9 +820,9 @@
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T23:23:16+08:00"
+    "planned_at": "2026-10-02T23:36:02+08:00"
   },
-  "based_on": "b52625d",
+  "based_on": "862466f",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

@@ -16,7 +16,12 @@
 """
 from __future__ import annotations
 
-# kind（containerlab 里的 kind）→ napalm 驱动名。只列实测可用的。
+# kind / device_type → napalm 驱动名。只列实测可用的。
+#
+# 注意这是**两套词汇**：containerlab 用 kind（ceos / vr-vmx / linux），
+# netmiko 用 device_type（cisco_ios / arista_eos / juniper_junos / linux）。
+# diagnose 路径读前者，ssh_driver 的 NETMIND_SSH_DEVICE_TYPE 是后者。
+# 只按其中一套建表，另一套入口会全部落空——上一轮修 diagnose 路径时漏了这个差异。
 KIND_TO_DRIVER = {
     'ceos': 'eos',
     'arista': 'eos',
@@ -33,9 +38,17 @@ KIND_TO_DRIVER = {
     'iosxe': 'ios',
     'iosv': 'ios',
     'cat9k': 'ios',
+    'cisco_ios': 'ios',       # 以下是 netmiko 的 device_type 拼法
+    'cisco_xe': 'ios',
     'nxos': 'nxos',
     'nxos_ssh': 'nxos',
+    'cisco_nxos': 'nxos',
     'iosxr': 'iosxr',
+    'cisco_iosxr': 'iosxr',
+    'eos': 'eos',
+    'arista_eos': 'eos',
+    'junos': 'junos',
+    'juniper_junos': 'junos',
 }
 
 # 非核心驱动：必须装对应插件才能用。装不上就如实说装不上，不静默降级。
