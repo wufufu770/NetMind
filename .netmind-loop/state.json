@@ -2,10 +2,10 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 5,
+  "cycle": 6,
   "phase": "plan",
-  "updated": "2026-10-02T17:54:50+08:00",
-  "head": "03bc2c7",
+  "updated": "2026-10-02T21:41:48+08:00",
+  "head": "d8d423f",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,10 +22,10 @@
   },
   "metrics": {
     "tests_passed": 95,
-    "gates_total": 9,
-    "gates_passed": 10,
+    "gates_total": 10,
+    "gates_passed": 12,
     "gates_warned": 0,
-    "src_lines": 7983,
+    "src_lines": 8010,
     "generic_names": 167,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -87,6 +87,18 @@
       "gates_passed": 10,
       "gates_warned": 0,
       "src_lines": 7983,
+      "generic_names": 167,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 6,
+      "tests_passed": 95,
+      "gates_total": 10,
+      "gates_passed": 12,
+      "gates_warned": 0,
+      "src_lines": 8010,
       "generic_names": 167,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -302,6 +314,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-full-matrix",
+      "title": "全量测试矩阵 + 依赖漏洞清零 + 前端首次有测试",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -363,6 +383,14 @@
       "shipped": "diagnose/closed_loop.py（真闭环：注入→诊断→处置→重测→验证；三条硬规则——没重测不报 success、没改善触发回滚、探针失败记异常）+ diagnose/lab_adapter.py（真调 tc/ip link/ping）+ POST /api/lab/loop 端点（实验台不可用时 503，不降级成模拟）+ test_closed_loop.py（8 个反例优先的回归）+ docs/closed-loop-run-report.md（三场景真实跑测，含「不能支撑的主张」清单）+ 修 HealingReport.success 默认 True 的假成功 + 修 test_fault_heal（它固化了假成功）",
       "at": "2026-10-02T17:54:50+08:00",
       "head": "03bc2c7"
+    },
+    {
+      "cycle": 6,
+      "id": "W-full-matrix",
+      "title": "全量测试矩阵 + 依赖漏洞清零 + 前端首次有测试",
+      "shipped": "全量矩阵（对齐 CI 定义的执行面）：后端 3.11/3.12 各 95 passed、前端 npm test 12 passed、npm run build 通过、validate_project 27 项 exit 0、pip-audit 0 漏洞、npm audit 0 漏洞。依赖升级消除全部已知漏洞（starlette 19 条 CVE + nanoid/postcss 高危）。前端首次有测试：抽出 lib/format.js + 12 用例，App.jsx 改为 import（否则测的是副本）。修 validate_project 在新版 FastAPI 上抛 AttributeError、compactLabel 占位符失效、CliRunner mix_stderr 在 click 8.2+ 已移除。新门禁 frontend-has-tests / deps-pinned-and-audited。",
+      "at": "2026-10-02T21:41:48+08:00",
+      "head": "d8d423f"
     }
   ],
   "retro": [
@@ -535,12 +563,12 @@
       "at": "2026-10-02T17:53:26+08:00"
     }
   ],
-  "gates_total": 10,
+  "gates_total": 12,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T17:54:49+08:00"
+    "planned_at": "2026-10-02T21:41:47+08:00"
   }
 }

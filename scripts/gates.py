@@ -166,6 +166,43 @@ assert neg[0]['verified'] is True, '反例应已重测，verified 应为 True'
 """,
     ),
     Gate(
+        id='frontend-has-tests',
+        desc='前端不再零测试：存在 npm test 脚本、测试文件，且 App.jsx 真的在用被测模块',
+        on_fail='block',
+        check="""
+import json
+d = json.loads((ROOT / 'frontend' / 'package.json').read_text(encoding='utf-8'))
+assert 'test' in d.get('scripts', {}), 'package.json 无 test 脚本——前端此前零测试，CI 只 build 不 test'
+tfiles = [p for p in (ROOT / 'frontend' / 'src').rglob('*.test.js')]
+tfiles += [p for p in (ROOT / 'frontend' / 'test').rglob('*.test.mjs')] if (ROOT / 'frontend' / 'test').exists() else []
+assert tfiles, '前端无测试文件'
+app = (ROOT / 'frontend' / 'src' / 'App.jsx').read_text(encoding='utf-8')
+imported = ('./lib/format.js' in app)
+assert imported, 'App.jsx 未 import 抽出的模块——测的不是实际运行的那份代码'
+for fn in ('compactLabel', 'displayToolName', 'executionLabel', 'localizeJsonText'):
+    assert ('function ' + fn) not in app, ('App.jsx 仍保留 ' + fn + ' 的本地副本，抽出的模块等于没接上')
+ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+assert 'npm test' in ci, 'CI 未运行前端测试'
+""",
+    ),
+    Gate(
+        id='deps-pinned-and-audited',
+        desc='依赖全钉版（无 >= / ^ 浮动范围）',
+        on_fail='warn',
+        check="""
+import re
+LOOSE = ('>=', '<=', '~=', '^')
+bad = []
+for rel in ('backend/requirements.txt', 'frontend/package.json'):
+    for i, line in enumerate((ROOT / rel).read_text(encoding='utf-8').splitlines(), 1):
+        for tok in LOOSE:
+            if tok in line:
+                bad.append(rel + ':' + str(i) + ' ' + line.strip()[:56])
+                break
+assert not bad, '未钉版本的依赖: ' + '; '.join(bad)
+""",
+    ),
+    Gate(
         id='ci-security-gates',
         desc='CI 具备依赖漏洞扫描（pip-audit / npm audit）',
         on_fail='warn',

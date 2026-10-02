@@ -7,7 +7,12 @@ from app.cli import app as cli_app, run  # noqa: F401
 from app.diagnose.clab import parse_clab, to_graph
 from app.diagnose.engine import diagnose
 
-runner=CliRunner(mix_stderr=False)
+# click < 8.2 需要 mix_stderr=False 才能让 result.output 只含 stdout；
+# click >= 8.2 移除了该参数且默认已分离。写死任一版本都会在另一个版本上炸。
+try:
+    runner=CliRunner(mix_stderr=False)
+except TypeError:
+    runner=CliRunner()
 DEMO=Path(__file__).resolve().parents[2]/'examples'/'clab-demo.yml'
 BROKEN=Path(__file__).resolve().parents[2]/'examples'/'clab-broken.yml'
 

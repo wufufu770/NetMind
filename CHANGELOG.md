@@ -4,6 +4,19 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- 前端首次有测试：`frontend/src/lib/format.js` + 12 个用例（node 内置 runner，零依赖）。此前 `package.json` 连 test 脚本都没有，CI 只 build 不 test
+- CI 的 `frontend-build` job 补上 `npm test`
+- 新门禁 `frontend-has-tests`：校验 test 脚本存在、测试文件存在、**且 App.jsx 真的 import 了被测模块**（否则测的是副本不是运行的那份）
+- 新门禁 `deps-pinned-and-audited`：依赖不得出现 `>=` / `^` 浮动范围
+
+### Security
+- 依赖升级消除全部已知漏洞（`pip-audit` 与 `npm audit` 均 0）：fastapi 0.115.6→0.142.2（带 starlette 0.41.3→1.7.0，原有 19 条 CVE）、python-dotenv 1.0.1→1.2.2、pytest 8.3.4→9.0.3、langgraph 浮动→1.2.12、vite 8.0.13→8.3.2（连带修掉 nanoid/postcss 高危）
+
+### Fixed
+- `validate_project.py` 的路由提取在新版 FastAPI 上抛 `AttributeError`：0.142 起 `include_router` 产出 `_IncludedRouter` 包装对象，既无 `.path` 也无 `.routes`，真实路由在 `.original_router.routes`。改为逐层下钻、兼容三种容器形态
+- `compactLabel` 的空值占位符从来没显示出来：原实现先取 `'--'` 再过 `[_-]+→' '` 规则，占位符被吃成单个空格。已短路返回
+- `CliRunner(mix_stderr=...)` 在 click 8.2+ 已移除，改为版本兼容写法
+
 - 真实闭环 `diagnose/closed_loop.py`：注入 → 诊断 → 处置 → 重测 → 验证。三条不可让步的规则：没重测不许报 success、重测没改善触发回滚、探针失败如实记异常
 - 闭环的实验台适配 `diagnose/lab_adapter.py`（真调 tc / ip link / ping）
 - `docs/closed-loop-run-report.md`：三场景真实跑测报告，并列出**不能**支撑的主张

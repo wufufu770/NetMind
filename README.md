@@ -34,6 +34,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Topology & telemetry data | ⚠️ Simulated generator |
 | Policy deployment on devices | ⚠️ Dry-run by default; real SSH/NETCONF behind `NETMIND_ENABLE_REAL_COMMANDS=true` |
 | Read-only device collection / audit | ✅ Real via netmiko / napalm / ncclient (`requirements-drivers.txt`) |
+| Dependency vulnerabilities | ✅ 0 known (`pip-audit` + `npm audit`, both in CI) |
+| Frontend tests | ✅ 12 cases on extracted display helpers (node built-in runner, no test framework) |
 
 ## Quick start
 
