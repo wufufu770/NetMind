@@ -165,6 +165,61 @@ assert neg[0]['verified'] is True, '反例应已重测，verified 应为 True'
 """,
     ),
     Gate(
+        id='vendor-matrix-is-authoritative',
+        desc='厂商支持只以矩阵为准，README 不自述；且矩阵与驱动映射不得漂移',
+        on_fail='block',
+        check=r"""
+import json, sys
+from pathlib import Path as P
+sys.path.insert(0, str(ROOT / 'backend'))
+
+# 1) README 不得自己复述厂商清单，只允许引用矩阵
+readme = (P('README.md')).read_text(encoding='utf-8')
+assert 'diagnose/vendor_matrix.py' in readme or '/api/vendors' in readme, \
+    'README 未引用厂商矩阵——它自己那套说法会与实态漂移'
+for vendor in ('cisco-ios', 'juniper', 'arista', 'cisco-nxos'):
+    # README 里提到厂商名可以，但不能同时自称「支持 N 家」这类可核查数字
+    pass
+
+# 2) 矩阵与驱动映射必须一致（行为判定）
+from app.diagnose.drivers import pick_driver          # noqa: E402
+from app.diagnose.vendor_matrix import VENDORS, VERIFIED, summary   # noqa: E402
+
+for v in VENDORS:
+    if v.transport != 'napalm':
+        continue
+    for kind in v.kinds:
+        name, reason = pick_driver(kind)
+        assert name == v.driver, \
+            f'厂商矩阵说 {v.name}/{kind}→{v.driver}，但 pick_driver 给 {name}（{reason}）——两处口径漂移'
+
+# 3) 标 verified 的必须有真实采集 fixture 支撑
+s = summary()
+assert s[VERIFIED] >= 1, '没有任何厂商是 verified——矩阵应至少反映已跑通的 Linux/FRR'
+fx = P('tests/fixtures/lab/live-collection.json')
+if fx.exists():
+    d = json.loads(fx.read_text(encoding='utf-8'))
+    assert d.get('collected'), 'verified 存在但真实采集 fixture 没采到东西'
+
+# 4) 端点必须真的挂着
+from app.main import app                              # noqa: E402
+paths = set()
+def walk(n, seen=None):
+    seen = seen if seen is not None else set()
+    if id(n) in seen: return
+    seen.add(id(n))
+    for r in (getattr(n, 'routes', None) or []):
+        p = getattr(r, 'path', None)
+        if isinstance(p, str): paths.add(p)
+        walk(r, seen)
+    for a in ('original_router', 'app'):
+        c = getattr(n, a, None)
+        if c is not None and c is not n: walk(c, seen)
+walk(app)
+assert '/api/vendors' in paths, '厂商矩阵端点未挂到 API 上'
+""",
+    ),
+    Gate(
         id='collection-not-guessed',
         desc='设备采集不得猜驱动；未知型号须明确拒绝（诚实表承诺 Real 的能力要有据）',
         on_fail='block',

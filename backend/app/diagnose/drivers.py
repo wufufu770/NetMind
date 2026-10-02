@@ -27,6 +27,15 @@ KIND_TO_DRIVER = {
     'vjunosswitch': 'junos',
     'vr-sros': 'nokia',      # 需 napalm-nokia 插件，见 PLUGIN_DRIVERS
     'srl': 'srl',            # 需 napalm-srl 插件
+    # Cisco 系。containerlab 的对应 kind 是 vr-ios/iosxe/iosv、nxos/nxos_ssh、vr-xr。
+    # 这些 kind 此前没进映射表，厂商矩阵声称支持而代码不支持——是测试当场抓到的漂移。
+    'ios': 'ios',
+    'iosxe': 'ios',
+    'iosv': 'ios',
+    'cat9k': 'ios',
+    'nxos': 'nxos',
+    'nxos_ssh': 'nxos',
+    'iosxr': 'iosxr',
 }
 
 # 非核心驱动：必须装对应插件才能用。装不上就如实说装不上，不静默降级。

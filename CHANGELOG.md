@@ -4,6 +4,12 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- 厂商能力矩阵（`diagnose/vendor_matrix.py` + `GET /api/vendors`、`/api/vendors.md`）。每家厂商带**验证等级**：verified（已在真实设备跑通采集）/ declared（映射与依赖齐备未验）/ blocked（缺插件，标出卡在哪）。README 不再自述厂商清单，只引用矩阵
+- 映射表补 Cisco 系 kind（`ios`/`iosxe`/`iosv`/`cat9k`→`ios`，`nxos`/`nxos_ssh`→`nxos`，`iosxr`→`iosxr`）——此前厂商矩阵声称支持而代码里根本没有这些 kind
+
+### Fixed
+- 厂商支持一度只是 README 的一句描述加 drivers.py 的映射表，两处都可能与实态漂移（此前已漂移过一次：映射列了 nokia/srl 而依赖未声明插件）。现改为代码可导出的矩阵，并有门禁与测试锁住「矩阵与映射不得不一致」
+
 - Linux/FRR 系设备的只读采集走 netmiko 直连（`diagnose/linux_collect.py`）。napalm 5.2 核心驱不了这类设备，而实验台拓扑正是这类型——原实现只挂了 napalm 一条路，导致诚实表的「read-only collection ✅ Real」对 Linux/FRR 从来不成立。现实测可采到真实接口状态/路由表/uptime
 - 显式驱动映射（`diagnose/drivers.py`）：未知 kind 不再静默兜底成 Arista EOS
 - `requirements-drivers.txt` 补可选插件 `napalm-nokia` / `napalm-srl`（此前映射表列了这两个驱动但依赖里从未声明，永远走不通）

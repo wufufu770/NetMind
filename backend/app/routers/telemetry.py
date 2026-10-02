@@ -21,6 +21,20 @@ def diagnose(): return TELEMETRY.diagnose()
 @router.post('/api/telemetry/heal', response_model=HealingReport)
 def heal(): return TELEMETRY.heal(TELEMETRY.diagnose())
 
+@router.get('/api/vendors')
+def vendors():
+    """厂商能力矩阵。每条都标验证等级，别让「支持某厂商」只是一句声明。"""
+    from ..diagnose.vendor_matrix import matrix, summary
+    return {'summary': summary(), 'vendors': matrix()}
+
+
+@router.get('/api/vendors.md')
+def vendors_markdown():
+    from ..diagnose.vendor_matrix import as_markdown
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(as_markdown())
+
+
 @router.post('/api/lab/loop', response_model=HealingReport)
 def lab_loop(baseline_throughput_mbps: float | None = Body(None, embed=True),
              count: int = Body(10, embed=True)):

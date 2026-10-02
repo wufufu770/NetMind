@@ -2,10 +2,10 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 8,
+  "cycle": 9,
   "phase": "plan",
-  "updated": "2026-10-02T22:13:16+08:00",
-  "head": "7f56372",
+  "updated": "2026-10-02T22:40:07+08:00",
+  "head": "0dacd27",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -21,11 +21,11 @@
     }
   },
   "metrics": {
-    "tests_passed": 111,
+    "tests_passed": 119,
     "gates_total": 13,
-    "gates_passed": 14,
+    "gates_passed": 15,
     "gates_warned": 0,
-    "src_lines": 8452,
+    "src_lines": 8721,
     "generic_names": 174,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -123,6 +123,18 @@
       "gates_passed": 14,
       "gates_warned": 0,
       "src_lines": 8452,
+      "generic_names": 174,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 9,
+      "tests_passed": 119,
+      "gates_total": 13,
+      "gates_passed": 15,
+      "gates_warned": 0,
+      "src_lines": 8721,
       "generic_names": 174,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -362,6 +374,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-vendor-matrix",
+      "title": "把「多厂商」从一句声明变成可核查的矩阵",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -447,6 +467,14 @@
       "shipped": "对着真实 SSH 端点（linuxserver/openssh-server 容器）跑通 NetMind 自己的采集路径，抓到驱动映射三处错误并修掉：映射到 napalm 不存在的 linux 驱动、未知 kind 静默兜底成 Arista EOS、nokia/srl 两个驱动在声明依赖下永远不可用。新增 netmiko 直连路径（linux_collect.py）使 Linux/FRR 设备的只读采集真正成立。修用法文本被当数据存储、send_command 签名不兼容。新增 21 个测试，真实采集结果固化为 fixture。",
       "at": "2026-10-02T22:11:42+08:00",
       "head": "9a60681"
+    },
+    {
+      "cycle": 9,
+      "id": "W-vendor-matrix",
+      "title": "把「多厂商」从一句声明变成可核查的矩阵",
+      "shipped": "厂商能力矩阵 diagnose/vendor_matrix.py（8 家，每家带验证等级）+ GET /api/vendors 与 /api/vendors.md。README 不再自述厂商清单只引用矩阵。补 Cisco 系 kind 到映射表——矩阵声称支持而代码没有，是测试当场抓到的漂移。新门禁 vendor-matrix-is-authoritative + 8 个矩阵测试，全量 116→124。实测：ceos/vyos/junos 镜像在本环境不可达，故 5 家停在 declared、2 家 blocked，只有 Linux/FRR 是 verified。",
+      "at": "2026-10-02T22:40:07+08:00",
+      "head": "0dacd27"
     }
   ],
   "retro": [
@@ -633,14 +661,22 @@
       "root_cause": "test_core_drivers_really_import 断言 napalm 核心驱动可导入，但 napalm 在 requirements-drivers.txt 而不在 requirements.txt——CI 只装后者。这条测试会让 CI 红在一个「本机装了驱动」的环境差异上，不是代码问题",
       "fix": "① 加 requires_napalm skipif，跳过理由写明「需可选驱动依赖，CI 未安装」② 教训：测试不得硬依赖可选依赖集合之外的东西；依赖分层（核心 vs 驱动）必须体现在测试的 skip 条件上，否则跨矩阵环境必然误报",
       "at": "2026-10-02T22:13:16+08:00"
+    },
+    {
+      "cycle": 9,
+      "gate": "vendor-matrix(测试当场抓到漂移)",
+      "on_fail": "manual",
+      "root_cause": "厂商矩阵声称支持 cisco-ios/nxos/iosxr，但 pick_driver 的 KIND_TO_DRIVER 里根本没有这些 kind——矩阵说的和代码做的不一致，正是我要防的那类漂移，被自己写的测试抓到",
+      "fix": "① 补 Cisco 系 kind 到映射表（containerlab 的 vr-ios/iosxe/iosv、nxos、vr-xr 都是合法 kind 且 napalm 有驱动）② 测试锁住「矩阵里每个 kind 必须真的映射到矩阵写的驱动」③ 教训：任何「能力清单」都要有生成源+一致性测试，否则清单和实现必然分叉",
+      "at": "2026-10-02T22:39:57+08:00"
     }
   ],
-  "gates_total": 14,
+  "gates_total": 15,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-02T22:11:41+08:00"
+    "planned_at": "2026-10-02T22:40:06+08:00"
   }
 }

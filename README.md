@@ -34,9 +34,22 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Real LLM calls | ✅ Real (API key required) |
 | Topology & telemetry data | ⚠️ Simulated generator |
 | Policy deployment on devices | ⚠️ Dry-run by default; real SSH/NETCONF behind `NETMIND_ENABLE_REAL_COMMANDS=true` |
-| Read-only device collection / audit | ✅ Real — napalm（eos/junos/ios/nxos 系）+ netmiko 直连（Linux/FRR 系）；未知型号**不猜驱动**，如实拒绝 (`diagnose/drivers.py` / `linux_collect.py`，21 tests) |
+| Read-only device collection / audit | ✅ Real — 能力矩阵见 `diagnose/vendor_matrix.py`（`GET /api/vendors`）；每家厂商带**验证等级**，未知型号**不猜驱动**、如实拒绝 |
 | Dependency vulnerabilities | ✅ 0 known (`pip-audit` + `npm audit`, both in CI) |
 | Frontend tests | ✅ 12 cases on extracted display helpers (node built-in runner, no test framework) |
+
+## Vendor support
+
+不要在这里看「支持哪些厂商」——那会与实态漂移。看矩阵：
+
+```bash
+GET /api/vendors       # JSON
+GET /api/vendors.md    # Markdown 表
+```
+
+矩阵每条都带验证等级：**verified**（已在真实设备跑通采集）· **declared**（映射与依赖齐备，未在真实设备验过）· **blocked**（缺驱动插件，标出卡在哪）。
+
+生成源是 `backend/app/diagnose/vendor_matrix.py`，有测试保证它与 `drivers.py` 的映射一致。
 
 ## Quick start
 
