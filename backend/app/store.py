@@ -198,6 +198,10 @@ class PersistentStore:
             fails = 0
             while True:
                 time.sleep(AUTOSAVE_INTERVAL)
+                # 测试会全局替换 os.replace 之类来做故障注入，后台线程撞上就会
+                # 造成时序相关的假失败。给测试一个把自动保存关掉的开关。
+                if not getattr(self, '_autosave_enabled', True):
+                    continue
                 try:
                     ok = self.flush()
                     if not ok:
@@ -263,6 +267,20 @@ class PersistentStore:
         self.save()
 
     COOKIE_RE = re.compile(r'cookie=(0x4e65744d[0-9a-fA-F]{8})')
+
+    def release_flow_cookies(self, commands: list[str]) -> int:
+        """回滚完成后注销这些命令携带的 cookie。
+
+        登记是一次性的：命令已回滚，那条流表已经不存在了，cookie 还留在登记表里
+        就等于给后续的特权回滚留了一条不需要重新下发的路。
+        """
+        released = 0
+        with self._lock:
+            for cmd in commands or []:
+                for m in self.COOKIE_RE.finditer(cmd or ''):
+                    if self.flow_cookies.pop(m.group(1), None) is not None:
+                        released += 1
+        return released
 
     def register_flow_cookies(self, commands: list[str], execution_id: str) -> int:
         """把系统规划命令中出现的 NetMind 格式 cookie 登记为已签发。返回新登记数量。"""

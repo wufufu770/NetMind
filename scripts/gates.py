@@ -348,6 +348,37 @@ assert not res['failures'], (
 """,
     ),
     Gate(
+        id='tests-are-reproducible',
+        desc='测试连跑两次结果必须一致（不可复现的测试比没有测试更糟）',
+        on_fail='block',
+        check=r"""
+import re, subprocess, sys
+from pathlib import Path as P
+
+# 这条门禁的由来：同一个「未登记 cookie 应被拒绝」的断言，单跑通过、全量失败，
+# 再往后又变成「连跑两次结果不同」。三个不同根因都指向同一件事——
+# 测试之间/运行之间共享了可变状态：
+#   ① data/netmind_store.json 跨运行累积
+#   ② importlib.reload(store) 造出新单例，模块间引用指向不同对象
+#   ③ STORE 的后台自动保存线程与故障注入的全局替换相撞
+# 三条都在 conftest 里治了。治完必须能测出来「真的治好了」。
+
+def _summary():
+    r = subprocess.run([sys.executable, '-m', 'pytest', 'backend/tests/', '-q',
+                        '--no-header', '-p', 'no:randomly'],
+                       cwd=ROOT, capture_output=True, text=True, timeout=900)
+    m = re.search(r'([0-9]+) passed', r.stdout)
+    f = re.search(r'([0-9]+) failed', r.stdout)
+    return (int(m.group(1)) if m else -1), (int(f.group(1)) if f else 0), r.stdout[-300:]
+
+p1, f1, out1 = _summary()
+assert f1 == 0, f'第 1 次全量测试有 {f1} 条失败: {out1}'
+p2, f2, out2 = _summary()
+assert f2 == 0, f'第 2 次全量测试有 {f2} 条失败——不可复现: {out2}'
+assert p1 == p2, f'两次运行通过数不同: {p1} vs {p2}——存在跨运行状态泄漏'
+""",
+    ),
+    Gate(
         id='data-durability-drill',
         desc='数据保住：原子写 + 备份/恢复演练必须在 CI 里真跑通',
         on_fail='block',

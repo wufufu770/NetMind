@@ -40,6 +40,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Default security | ✅ Safe by default — no token ⇒ loopback-only (403); token ⇒ all methods incl. GET; `/healthz` public, `/metrics` authenticated |
 | Self observability | ✅ Real — `/healthz` + `/metrics` (p50/p95/p99 per endpoint, error counts) |
 | Data durability | ✅ Atomic write (fsync + rename + dir fsync) + `scripts/data_ops.py` backup/restore/drill; drill 在 CI 里每次真跑 |
+| Rollback semantics | ✅ Covered — rollback only touches *applied* commands; cookies released after rollback; security-blocked ⇒ no rollback, driver-failed ⇒ conservative rollback |
+| Test reproducibility | ✅ Gate `tests-are-reproducible` runs the suite twice; same pass count required |
 
 ## Vendor support
 

@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 15,
+  "cycle": 16,
   "phase": "plan",
-  "updated": "2026-10-03T01:35:12+08:00",
+  "updated": "2026-10-03T02:19:42+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,11 +20,11 @@
     }
   },
   "metrics": {
-    "tests_collected": 160,
-    "gates_total": 19,
-    "gates_passed": 19,
+    "tests_collected": 171,
+    "gates_total": 20,
+    "gates_passed": 20,
     "gates_warned": 0,
-    "src_lines": 10233,
+    "src_lines": 10567,
     "generic_names": 190,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -206,6 +206,18 @@
       "gates_passed": 19,
       "gates_warned": 0,
       "src_lines": 10233,
+      "generic_names": 190,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 16,
+      "tests_collected": 171,
+      "gates_total": 19,
+      "gates_passed": 20,
+      "gates_warned": 0,
+      "src_lines": 10567,
       "generic_names": 190,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -589,6 +601,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-rollback-semantics",
+      "title": "回滚语义回归 + 测试可复现",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -730,6 +750,14 @@
       "shipped": "落盘补齐 fsync 文件 + fsync 目录项（掉电不留半截）、临时名改用 tempfile.mkstemp（原先固定 .tmp 同机两进程互相覆盖；中间试的 pid+thread_ident 方案实测 10 并发只出 7 个不同名，get_ident() 会回收复用）、落盘失败不再静默（save() 返回成败 + 记审计 + 自动保存连续失败 3 次写 error）、启动清理崩溃残留。新增 scripts/data_ops.py（backup/restore/verify/list/drill）与门禁 data-durability-drill，CI 每次真跑恢复演练并验证坏恢复源被拒。13 个新用例，全量 147→160。 CI 演练步骤改为调用 seed 子命令（原先内联多行 Python 把 YAML 写崩了）。门禁总耗时 47.65s。",
       "at": "2026-10-03T01:35:07+08:00",
       "based_on": "c31ca5f"
+    },
+    {
+      "cycle": 16,
+      "id": "W-rollback-semantics",
+      "title": "回滚语义回归 + 测试可复现",
+      "shipped": "test_transaction.py 10 例（该模块此前零直接覆盖）。修四处真问题：回滚集包含从未下发的变更、cookie 登记后永不释放、首条被拦却误报已回滚、以及测试三处共享可变状态（数据文件跨运行累积 / importlib.reload 造新单例 / 后台自动保存线程与故障注入相撞）。新增门禁 tests-are-reproducible 连跑两次比对通过数。全量 160→171，门禁 19→20。",
+      "at": "2026-10-03T02:19:18+08:00",
+      "based_on": "807afa8"
     }
   ],
   "retro": [
@@ -1004,17 +1032,25 @@
       "root_cause": "  /home/wff/netmind/backend/app/core/audit.py:166: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    'audit_id': f\"audit-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}\",\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n==",
       "fix": "待定——本轮不记根因的门禁会原样复现",
       "at": "2026-10-03T01:30:43+08:00"
+    },
+    {
+      "cycle": 16,
+      "gate": "test(共享可变状态的三种形态)",
+      "on_fail": "manual",
+      "root_cause": "同一个断言(未登记 cookie 应被拒)在三种场景下失败：单跑通过、全量失败、连跑两次结果不同。三个根因：① data 文件跨运行累积 ② importlib.reload(store) 造新单例导致模块间引用分叉 ③ 后台自动保存线程与故障注入的全局替换相撞",
+      "fix": "① conftest 统一治：per-session 数据文件 + 用例前重置 STORE + 关自动保存 ② fixture 改用 monkeypatch.setattr 换路径而非 reload ③ 测试内不用 monkeypatch.undo()（会连带撤销 fixture 补丁）④ 新门禁 tests-are-reproducible 连跑两次比对。教训：'单跑能过'不等于'测试是可信的'；共享可变状态是测试腐化的头号来源",
+      "at": "2026-10-03T02:17:53+08:00"
     }
   ],
-  "gates_total": 19,
+  "gates_total": 20,
   "next_round": {
     "id": "C1-auth-default-safe",
     "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
     "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
     "deliverable": "",
-    "planned_at": "2026-10-03T01:35:02+08:00"
+    "planned_at": "2026-10-03T02:19:13+08:00"
   },
-  "based_on": "c31ca5f",
+  "based_on": "807afa8",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

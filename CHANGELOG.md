@@ -4,6 +4,30 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- `test_transaction.py`：事务与回滚语义回归 10 例。此前该模块**零直接覆盖**——项目宣称
+  最响的「可回滚」，测试最空的地方正是这里
+- 门禁 `tests-are-reproducible`：全量测试连跑两次，通过数必须一致
+- 门禁 `data-durability-drill`（上一轮）、`no-fake-healing` 等已在 CI 里
+
+### Fixed
+- **回滚集包含从未下发的变更**。原实现把整份 rollback_commands 在下发前就累积进去，
+  于是策略 b 的首条命令失败时，策略 b（一条都没下发成功）也跟着被回滚。现在回滚只
+  覆盖「已成功下发」的命令；两类失败区别对待——**被安全门拦下**确定没下发不回滚，
+  **driver 报失败**可能已部分应用故保守回滚
+- **cookie 登记后永不释放**。回滚完成了，cookie 还留在登记表里就等于给后续特权回滚
+  留了一条不需要重新下发的路。新增 `release_flow_cookies()`，回滚结束即注销
+- **首条命令就被拦时误报「已回滚」**。什么都没执行却报 rolled_back=True
+- **测试三处共享可变状态**（同一问题踩了三次）：
+  ① data 文件跨运行累积 ② `importlib.reload(store)` 造出新单例，transaction 往旧
+     STORE 登记、security 惰性 import 拿到新 STORE 去查，cookie 明明登记了却查不到
+  ③ STORE 的后台自动保存线程与故障注入的全局替换（os.replace/builtins.open）相撞，
+     造成同代码连跑两次结果不同。三条都已在 conftest 治，并由新门禁锁住
+- 测试里调用 `monkeypatch.undo()` 会把 fixture 打的补丁一并撤销——路径会退回
+  conftest 的临时目录，看起来像功能坏了。故障注入改用局部 try/finally 恢复
+- 故障注入点与实现脱节：`save()` 已改用 `tempfile.mkstemp + os.fdopen`，patch
+  `builtins.open` 对它无效，测到的不是「落盘失败」而是「什么都没发生」。注入点改到
+  `os.replace` / `os.fsync`——真正的原子步骤
+
 - `scripts/data_ops.py`：数据保全命令 `backup` / `restore` / `verify` / `list` / `drill`。
   `drill` 是恢复演练——备份 → 故意破坏 → 恢复 → 校验内容逐字节一致。真出事时
   才用得到的东西，必须先演练过才知道能不能用
