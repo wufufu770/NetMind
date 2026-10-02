@@ -1,0 +1,38 @@
+[
+  {
+    "scenario": "baseline",
+    "before": 0.133,
+    "before_loss": 0.0,
+    "after": null,
+    "after_loss": null,
+    "success": null,
+    "verified": null
+  },
+  {
+    "scenario": "congestion",
+    "before": 120.288,
+    "before_loss": 0.1,
+    "after": 0.12,
+    "after_loss": 0.0,
+    "success": true,
+    "verified": true
+  },
+  {
+    "scenario": "link_down",
+    "before": 999.0,
+    "before_loss": 1.0,
+    "after": 0.118,
+    "after_loss": 0.0,
+    "success": true,
+    "verified": true
+  },
+  {
+    "scenario": "no_op_negative",
+    "before": 120.281,
+    "before_loss": 0.0,
+    "after": 120.345,
+    "after_loss": 0.0,
+    "success": false,
+    "verified": true
+  }
+]

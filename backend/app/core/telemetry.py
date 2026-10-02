@@ -79,11 +79,24 @@ class TelemetryService:
                              confidence=_confidence(bw_drop, n))
         return Diagnosis(type='normal')
     def heal(self, diagnosis: Diagnosis) -> HealingReport:
+        """模拟路径的自愈。此前 success 恒为 True——把 fault 改回 normal 再采一次
+        样就算「处置成功」，与是否真做了事无关。
+
+        这里只做能在无外部依赖时做到的事，并如实标注 verified=False：
+        它把 fault 置回 normal 后重采，能确认的只是「模拟器状态变了」，
+        不是「真实链路恢复了」。真实闭环见 diagnose/closed_loop.py。
+        """
         before=STORE.telemetry[-1] if STORE.telemetry else self.sample()
         action={'congestion':'启用备用路径并重新下发流表','link_down':'回滚故障链路策略并切换备用链路','anomaly_traffic':'应用访客限速与隔离策略','config_error':'回滚最近配置','normal':'无需动作'}[diagnosis.type]
         self.fault='normal'
         after=self.sample()
-        report=HealingReport(action_taken=action,before_snapshot=before,after_snapshot=after,summary=f'{action}；处置后重新观测（{after.source}）：{after.latency_ms}ms')
+        report=HealingReport(
+            action_taken=action, before_snapshot=before, after_snapshot=after,
+            success=False, verified=False,
+            improvement={'note': '模拟路径，未做真实重测，不构成成功证据'},
+            summary=(f'{action}；模拟态重采（{after.source}）：{after.latency_ms}ms —— '
+                     f'未做真实重测，不报成功。真实闭环见 diagnose/closed_loop.py'),
+        )
         STORE.log('healing', report.summary, 'info')
         return report
 TELEMETRY=TelemetryService()

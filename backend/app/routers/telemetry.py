@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException
 from ..schemas import TelemetrySnapshot, Diagnosis, HealingReport
 from ..store import STORE
 from ..core.telemetry import TELEMETRY
@@ -20,6 +20,20 @@ def diagnose(): return TELEMETRY.diagnose()
 
 @router.post('/api/telemetry/heal', response_model=HealingReport)
 def heal(): return TELEMETRY.heal(TELEMETRY.diagnose())
+
+@router.post('/api/lab/loop', response_model=HealingReport)
+def lab_loop(baseline_throughput_mbps: float | None = Body(None, embed=True),
+             count: int = Body(10, embed=True)):
+    """在真实验台上跑完整闭环：真探测 → 真诊断 → 真处置 → 真重测 → 验证。
+
+    与 /api/telemetry/heal 的区别：后者走模拟路径，verified 恒为 False；
+    这里 success 只能由实测前后对比推出。实验台没起时如实报错，不降级成模拟。
+    """
+    from ..diagnose.lab_adapter import run_lab_loop
+    try:
+        return run_lab_loop(baseline_throughput_mbps=baseline_throughput_mbps, count=count)
+    except Exception as exc:
+        raise HTTPException(503, detail=f'实验台不可用，未降级为模拟: {type(exc).__name__}: {exc}')
 
 @router.get('/api/telemetry/anomaly')
 def telemetry_anomaly(limit: int=12):

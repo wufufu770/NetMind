@@ -27,7 +27,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Config-change proposal (diff, danger marking, reviewable Markdown) | ✅ Real (`core/config_diff.py`, 8 tests) |
 | Lab data collection (real ICMP + NIC counters) | ✅ Real (`diagnose/lab_collector.py` + `scripts/lab.sh`, 11 tests on real captures) |
 | Diagnosis thresholds | ⚠️ Calibrated on one lab topology; `throughput` judgement needs a baseline and is skipped when absent |
-| Post-apply verification | ❌ Not implemented — only pre-apply check exists |
+| Post-apply verification | ✅ Real — `diagnose/closed_loop.py`; `success` 由实测前后对比推出，未重测即 `verified=False`（跑测见 `docs/closed-loop-run-report.md`） |
+| Healing action | ⚠️ Verified only in the lab (clearing an injected fault); real-world faults unverified |
 | Offline rule engine + mock model | ✅ Real |
 | Real LLM calls | ✅ Real (API key required) |
 | Topology & telemetry data | ⚠️ Simulated generator |

@@ -120,7 +120,12 @@ class HealingReport(BaseModel):
     action_taken: str
     before_snapshot: TelemetrySnapshot
     after_snapshot: TelemetrySnapshot
-    success: bool = True
+    # success 此前默认 True 且从无人赋值——于是「处置成功」是写死的。
+    # 现在 success 必须由实测前后对比推出；verified 表示这个对比是否真的做了。
+    # verified=False 时 success 无意义，不得当成成功对外说。
+    success: bool = False
+    verified: bool = False
+    improvement: Dict[str, Any] = Field(default_factory=dict)
     summary: str
 
 class AgentStep(BaseModel):

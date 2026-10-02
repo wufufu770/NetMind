@@ -37,4 +37,9 @@ def test_fault_heal():
     diag=client.post('/api/telemetry/diagnose').json()
     assert diag['type'] in ['congestion','anomaly_traffic','link_down']
     heal=client.post('/api/telemetry/heal').json()
-    assert heal['success']
+    # 模拟路径没有做真实重测，因此不得报成功。此前这里断言 success 为真，
+    # 等于把「处置必然成功」这个假象固化成了测试契约——真闭环的 success
+    # 由实测前后对比推出，见 test_closed_loop.py。
+    assert heal['verified'] is False
+    assert heal['success'] is False
+    assert '不报成功' in heal['summary']

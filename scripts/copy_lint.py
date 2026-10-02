@@ -23,6 +23,7 @@ CUSTOMER_FACING = [
     'docs/API.md',
     'SECURITY.md',
     'CHANGELOG.md',
+    'docs/closed-loop-run-report.md',
 ]
 
 # 空洞套话：命中即红（承律 1「挂不上可复现物就删」）
@@ -60,11 +61,14 @@ TRANSITION_RE = re.compile(
     r'Overall|In summary)\b|此外|另外值得注意的是|总而言之', re.IGNORECASE)
 
 # 数字：需挂来源
+# 单位用 (?!\w) 收尾而不是 \b：% × 倍 等不是单词字符，其后跟标点时 \b 不成立，
+# 会导致「75%」整类百分比漏检（此前只靠同行的 3x 侥幸命中过一条）。
 NUM_RE = re.compile(
-    r'\b\d+(?:\.\d+)?\s*(?:%|x|×|倍|ms|s\b|秒|分钟|小时|人日|人天)\b'
-    r'|\$\s?\d[\d,]*(?:\.\d+)?[kKmM]?\b'
+    r'\b\d+(?:\.\d+)?\s*(?:%|x|×|倍|ms|秒|分钟|小时|人日|人天)(?!\w)'
+    r'|\b\d+(?:\.\d+)?\s*s\b'
+    r'|\$\s?\d[\d,]*(?:\.\d+)?[kKmM]?(?!\w)'
     r'|\b\d[\d,]{2,}\b')
-ROUND_RE = re.compile(r'\b(?:\d+0|\d+5)(?:\.\d+)?\s*(?:%|x|×|倍)\b')
+ROUND_RE = re.compile(r'\b(?:\d+0|\d+5)(?:\.\d+)?\s*(?:%|x|×|倍)(?!\w)')
 # 先剥掉「本身即来源」的形态：ISO 日期、版本号、commit SHA、端口号
 NOT_A_CLAIM_RE = re.compile(
     r'\b\d{4}-\d{2}-\d{2}\b'                 # ISO 日期
@@ -88,27 +92,73 @@ def check_file(path: Path) -> list[tuple[str, int, str]]:
     bullet_check = path.name != 'CHANGELOG.md'
     findings = []
 
-    for i, line in enumerate(lines, 1):
+    body = strip_fences(raw)
+    # 表格是一个整体：来源写在表前后的引出句/脚注即可，不要求逐行挂。
+    # 逐行要求会让表格被迫塞满引用，反而逼人把表格拆成散文。
+    # 判定方式：行属于某张表时，在该表起始行前 3 行与结束行后 3 行内找证据。
+    # 围栏代码块内的数字是工具输出原文，不是对外主张（那正是被引用的原始证据本身），
+    # 不该要求它再挂一次来源
+    fenced = set()
+    in_fence = False
+    for idx, l in enumerate(lines):
+        if l.lstrip().startswith('```'):
+            in_fence = not in_fence
+            fenced.add(idx)
+            continue
+        if in_fence:
+            fenced.add(idx)
+
+    table_spans = []          # [(first_line_idx, last_line_idx)]
+    i = 0
+    while i < len(lines):
+        if lines[i].lstrip().startswith('|'):
+            j = i
+            while j < len(lines) and lines[j].lstrip().startswith('|'):
+                j += 1
+            table_spans.append((i, j - 1))
+            i = j
+        else:
+            i += 1
+
+    def table_evidence(idx: int) -> bool:
+        for (a, b) in table_spans:
+            if a <= idx <= b:
+                ctx = lines[max(0, a - 3):a] + lines[b + 1:b + 4]
+                return any(EVIDENCE_RE.search(c) for c in ctx)
+        return False
+
+    for idx, line in enumerate(lines):
+        lineno = idx + 1
         if line.lstrip().startswith('|') and set(line.strip()) <= set('|-: '):
             continue                                   # 表格分隔行
 
         for m in SLOP_RE.finditer(line):
-            findings.append(('SLOP', i, f'空洞套话「{m.group(0)}」需挂可复现物或删除'))
+            findings.append(('SLOP', lineno, f'空洞套话「{m.group(0)}」需挂可复现物或删除'))
         for m in META_RE.finditer(line):
-            findings.append(('META', i, f'元评论「{m.group(0)}」应删'))
+            findings.append(('META', lineno, f'元评论「{m.group(0)}」应删'))
         for ch in EMOJI_RE.findall(line):
             if ch not in FUNCTIONAL:
-                findings.append(('EMOJI', i, f'装饰性 emoji「{ch}」应删'))
+                findings.append(('EMOJI', lineno, f'装饰性 emoji「{ch}」应删'))
 
         scrubbed = NOT_A_CLAIM_RE.sub(' ', line)
-        if NUM_RE.search(scrubbed) and not EVIDENCE_RE.search(line):
+        # 换行句允许证据落在紧邻的前后行——中文长句常在行中换行
+        prev = lines[idx - 1] if idx > 0 else ''
+        nxt = lines[idx + 1] if idx + 1 < len(lines) else ''
+        in_fence = idx in fenced
+        if (NUM_RE.search(scrubbed) and not in_fence
+                and not EVIDENCE_RE.search(line)
+                and not EVIDENCE_RE.search(prev) and not EVIDENCE_RE.search(nxt)
+                and not table_evidence(idx)):
             m = NUM_RE.search(scrubbed)
-            findings.append(('NUM', i, f'无源数字「{m.group(0).strip()}」需挂命令/报告/链接'))
-        elif ROUND_RE.search(scrubbed):
+            findings.append(('NUM', lineno, f'无源数字「{m.group(0).strip()}」需挂命令/报告/链接'))
+        # 圆整数字是「值得复核的信号」而非判决：实测值恰好是整数很常见
+        # （0% / 10% 丢包就是 netem 参数本身）。已挂来源就不再提示。
+        elif (ROUND_RE.search(scrubbed) and not in_fence
+              and not EVIDENCE_RE.search(line)
+              and not EVIDENCE_RE.search(prev) and not EVIDENCE_RE.search(nxt)):
             m = ROUND_RE.search(scrubbed)
-            findings.append(('ROUND', i, f'圆整统计「{m.group(0).strip()}」需换实测值'))
+            findings.append(('ROUND', lineno, f'圆整统计「{m.group(0).strip()}」需换实测值'))
 
-    body = strip_fences(raw)
     words = max(1, len(body) // 2)
     trans = len(TRANSITION_RE.findall(body))
     if trans / words * 1000 > 1:

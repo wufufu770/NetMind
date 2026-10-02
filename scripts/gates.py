@@ -136,6 +136,36 @@ assert "'real'" in sc or '"real"' in sc, 'TelemetrySnapshot.source 未开放 rea
 """,
     ),
     Gate(
+        id='no-fake-healing',
+        desc='自愈不得恒报成功（verified=False 时 success 必须 False，且跑测须含反例）',
+        on_fail='block',
+        check="""
+import json
+# 1) schema 层：success 不能再有「默认 True」这种一构造就成功的默认值
+sch = (ROOT / 'backend' / 'app' / 'schemas.py').read_text(encoding='utf-8')
+i = sch.find('class HealingReport')
+blk = sch[i:i + 900]
+assert 'success: bool = False' in blk, 'HealingReport.success 默认值不是 False——默认 True 等于「一构造就成功」'
+assert 'verified: bool = False' in blk, 'HealingReport 缺 verified 字段，无法表达「未做重测」'
+
+# 2) 跑测报告必须存在且含反例场景
+rep = ROOT / 'docs' / 'closed-loop-run-report.md'
+assert rep.exists(), 'docs/closed-loop-run-report.md 缺失——跑测报告是对外数字的唯一来源'
+rt = rep.read_text(encoding='utf-8')
+assert '反例' in rt, '跑测报告缺反例场景；只报成功的报告不构成验证'
+assert '不能' in rt and '支撑' in rt, '跑测报告必须列出「本报告不能支撑的主张」'
+
+# 3) 反例数据必须真的记着 success=False
+cf = ROOT / 'tests' / 'fixtures' / 'lab' / 'closed-loop-run.json'
+assert cf.exists(), '缺 closed-loop-run.json（真实闭环跑测原始数据）'
+scen = json.loads(cf.read_text(encoding='utf-8'))
+neg = [x for x in scen if x['scenario'] == 'no_op_negative']
+assert neg, '跑测数据缺 no_op_negative 反例'
+assert neg[0]['success'] is False, '反例的 success 竟为 True——闭环又在演戏'
+assert neg[0]['verified'] is True, '反例应已重测，verified 应为 True'
+""",
+    ),
+    Gate(
         id='ci-security-gates',
         desc='CI 具备依赖漏洞扫描（pip-audit / npm audit）',
         on_fail='warn',
