@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+from uuid import uuid4
 from ..schemas import TelemetrySnapshot, Diagnosis, HealingReport
 from ..store import STORE
 
@@ -164,25 +165,89 @@ class TelemetryService:
                              evidence={'throughput_drop_ratio':round(bw_drop,3)},
                              confidence=_confidence(bw_drop, n, simulated=sim))
         return Diagnosis(type='normal')
-    def heal(self, diagnosis: Diagnosis) -> HealingReport:
-        """模拟路径的自愈。此前 success 恒为 True——把 fault 改回 normal 再采一次
-        样就算「处置成功」，与是否真做了事无关。
+    def heal(self, diagnosis: Diagnosis, *, iface: str | None = None,
+             backup: str | None = None, rate_mbps: int = 5,
+             bridge: str | None = None) -> HealingReport:
+        """自愈：生成真命令 → 过安全门 → 真下发 → 重测验证。
 
-        这里只做能在无外部依赖时做到的事，并如实标注 verified=False：
-        它把 fault 置回 normal 后重采，能确认的只是「模拟器状态变了」，
-        不是「真实链路恢复了」。真实闭环见 diagnose/closed_loop.py。
+        此前这里只把 `self.fault` 改回 'normal' 再采一次样，动作是中文描述串，
+        不产生任何真实副作用。现在处置是一条真能过白名单的命令，经
+        TransactionManager 下发（受危险操作语义门、cookie 校验、回滚保护），
+        下发完**重测**并与处置前对比——改善与否由数据说话。
+
+        报告严格区分三种情况，不含糊：
+          · 真下发且指标改善   → success=True, verified=True, applied=True
+          · 干跑/仿真未真下发   → applied=False，明确说没动设备
+          · 下发了但指标没改善 → success=False，触发回滚
         """
-        before=STORE.telemetry[-1] if STORE.telemetry else self.sample()
-        action={'congestion':'启用备用路径并重新下发流表','link_down':'回滚故障链路策略并切换备用链路','anomaly_traffic':'应用访客限速与隔离策略','config_error':'回滚最近配置','normal':'无需动作'}[diagnosis.type]
-        self.fault='normal'
-        after=self.sample()
-        report=HealingReport(
-            action_taken=action, before_snapshot=before, after_snapshot=after,
-            success=False, verified=False,
-            improvement={'note': '模拟路径，未做真实重测，不构成成功证据'},
-            summary=(f'{action}；模拟态重采（{after.source}）：{after.latency_ms}ms —— '
-                     f'未做真实重测，不报成功。真实闭环见 diagnose/closed_loop.py'),
-        )
-        STORE.log('healing', report.summary, 'info')
-        return report
+        from .remediation import RemediationUnavailable, build
+
+        before = STORE.telemetry[-1] if STORE.telemetry else self.sample()
+        eid = f'heal-{uuid4().hex[:8]}'
+        try:
+            plan = build(diagnosis, iface=iface, backup=backup,
+                         rate_mbps=rate_mbps, bridge=bridge, execution_id=eid)
+        except RemediationUnavailable as exc:
+            self.fault = 'normal' if diagnosis.type == 'normal' else self.fault
+            rep = HealingReport(
+                action_taken=f'无需处置：{exc}', before_snapshot=before,
+                after_snapshot=before, success=False, verified=False,
+                improvement={'no_action': str(exc)},
+                summary=f'{exc}；未产生任何设备侧变更')
+            STORE.log('healing', rep.summary, 'info', eid)
+            return rep
+
+        from .transaction import TRANSACTION
+        deploy = TRANSACTION.deploy(eid, plan)
+        # 干跑/仿真不算「已下发」——mode 如实带在报告里
+        applied = bool(deploy.success) and str(deploy.mode) == 'real'
+        after = self.sample()
+        lat_before = float(before.latency_ms or 0.0)
+        lat_after = float(after.latency_ms or 0.0)
+        loss_before = float(before.packet_loss or 0.0)
+        loss_after = float(after.packet_loss or 0.0)
+        improved = (lat_after <= lat_before * 0.8) or (loss_before - loss_after >= 0.02)
+
+        imp = {
+            'planned_commands': [c for p in plan.policies for c in p.commands],
+            'executed': [e.model_dump(mode='json') for e in deploy.executed],
+            'deploy_success': deploy.success,
+            'deploy_mode': deploy.mode,
+            # 真正落到设备上的标志。干跑/仿真下即便 deploy.success 为真，
+            # 这个也必须是 False——它回答的是「设备被动过没有」。
+            'applied': applied,
+            'rolled_back': deploy.rolled_back,
+            'latency_before_ms': lat_before, 'latency_after_ms': lat_after,
+            'loss_before': loss_before, 'loss_after': loss_after,
+            'measurement_source': str(after.source),
+            'measured': 'real' if str(after.source) in ('real', 'lab') else 'simulated',
+        }
+        if str(deploy.mode) != 'real':
+            why = f'当前是 {deploy.mode} 模式'
+            rep = HealingReport(
+                action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
+                before_snapshot=before, after_snapshot=after,
+                success=False, verified=str(after.source) in ('real', 'lab'),
+                improvement=imp,
+                summary=(f"处置命令已生成并过安全门，但{why}——"
+                         f'**未真的下发到设备**，不报成功'))
+        elif not deploy.success:
+            # 模式是 real 但下发失败了——这跟「没下发」是两回事，文案不能说混
+            failed = [e for e in imp['executed'] if e.get('command') and not e.get('success')]
+            detail = '; '.join(f"{e.get('command')} → {str(e.get('output'))[:60]}" for e in failed[:2])
+            rep = HealingReport(
+                action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
+                before_snapshot=before, after_snapshot=after,
+                success=False, verified=True, improvement=imp,
+                summary=(f'**真下发了但设备拒绝执行**：{detail or "命令返回非零"}——'
+                         f'设备侧状态未改变，不报成功'))
+        else:
+            rep = HealingReport(
+                action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
+                before_snapshot=before, after_snapshot=after,
+                success=bool(improved), verified=True, improvement=imp,
+                summary=(f"已下发并重测：{lat_before}→{lat_after}ms，"
+                         f'丢包 {loss_before}→{loss_after}（{"已改善" if improved else "未改善"}）'))
+        STORE.log('healing', rep.summary, 'info' if rep.success else 'warn', eid)
+        return rep
 TELEMETRY=TelemetryService()

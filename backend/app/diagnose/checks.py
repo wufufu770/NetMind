@@ -18,9 +18,8 @@ def run_checks(parsed: dict, graph, collected: dict | None=None) -> list[dict]:
     seen={}
     for i,l in enumerate(parsed['links']):
         pair=tuple(sorted(e[0] for e in l['endpoints']))
-        if len(pair)==2 and pair==tuple(sorted(set(pair))):
-            key=(pair,i)
-        else:
+        # 端点重复或自环的 link 不做「重复链路」判定
+        if len(pair)!=2 or pair!=tuple(sorted(set(pair))):
             continue
         if pair in seen:
             findings.append({'id':f'dup-link:{pair[0]}-{pair[1]}','severity':'warning',

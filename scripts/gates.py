@@ -102,6 +102,69 @@ assert _dead_modules() == [], '零引用死模块: ' + ', '.join(_dead_modules()
 """,
     ),
     Gate(
+        id='no-dead-local',
+        desc='零死局部变量（生产代码里赋了值却从未被读——重构残留，读代码的人会被误导）',
+        on_fail='block',
+        check=r"""
+# 「算了却没用」的变量不是风格问题：像 transaction.py 里那个 rb_all_ok，
+# 读代码的人会以为回滚完整性由它控制，实际由 _rollback() 的返回值走
+# DeployResult.rollback_complete。留着就是误导。
+#
+# 三类合法写法不算死码，按惯例排除：
+#   · 下划线开头        —— 显式标注「故意不用」
+#   · 元组解包的被丢弃位 —— intent, _ = parse(...) 这类
+#   · for 循环变量      —— 循环本身就是目的
+#
+# 范围只到 backend/app（生产代码）：函数里定义的类，其类属性会被本函数外的
+# 代码读到（测试里的 R().method 就是这种），把类体算进函数作用域会误报。
+# 与 no-dead-module 同样只对非测试文件做判定。
+import ast
+
+def _ancestors(node, parent, stop_at):
+    # 向上找祖先，但在 stop_at（本函数）处停下。
+    # 停下的理由：方法体里的赋值往上走会撞到**自己所属的类**，而那个类不是
+    # 「函数内定义的类」。只排除真正嵌套在函数内部的 ClassDef（那里的属性
+    # 才是给本函数外的代码读的类属性）。
+    while node in parent:
+        node = parent[node]
+        if node is stop_at:
+            return
+        yield node
+
+def _dead_locals(path):
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    parent = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parent[child] = node
+    out = []
+    for fn in [n for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        reads = {n.id for n in ast.walk(fn)
+                 if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+        for n in ast.walk(fn):
+            if not (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)):
+                continue
+            if n.id in reads or n.id == '_' or n.id.startswith('_'):
+                continue
+            if isinstance(parent.get(n), (ast.Tuple, ast.For)):
+                continue
+            # 类体内的赋值是类属性，不是局部变量——它给本函数外的代码读
+            if any(isinstance(a, ast.ClassDef) for a in _ancestors(n, parent, fn)):
+                continue
+            out.append(f'{path.relative_to(ROOT)}:{n.lineno} {fn.name}() 的 {n.id}')
+    return out
+
+dead = []
+for p in sorted((ROOT / 'backend' / 'app').rglob('*.py')):
+    try:
+        dead += _dead_locals(p)
+    except SyntaxError as exc:
+        dead.append(f'{p.relative_to(ROOT)} 语法错误: {exc}')
+assert not dead, ('死局部变量 %d 处:\n  ' % len(dead)) + '\n  '.join(dead[:12])
+""",
+    ),
+    Gate(
         id='real-data-not-faked',
         desc='真实数据通道未被退回模拟（fixture 存在且含真实采集特征）',
         on_fail='block',

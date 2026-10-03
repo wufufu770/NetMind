@@ -99,7 +99,6 @@ class LangGraphCompatEngine:
         rec.resolved = True
         rec.decision = decision
         ex = STORE.executions.get(rec.execution_id)
-        deployed = None
         if ex:
             ex.steps.append(AgentStep(agent='HumanApproval', status=Status.success if decision == 'approved' else Status.failed, output={'decision': decision}, duration_ms=1))
             if decision == 'approved' and ex.policy_set is not None and not ex.deploy:

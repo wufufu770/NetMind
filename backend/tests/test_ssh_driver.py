@@ -107,12 +107,18 @@ def test_execute_is_dry_run_unless_explicitly_enabled(monkeypatch):
 
 
 def test_execute_really_runs_when_enabled(monkeypatch):
+    """命令必须真发到设备，且按远端退出码判成败。
+
+    假连接现在必须回退出码标记——`execute` 会包一层 `cmd; printf ' __netmind_rc=%s\n' "$?"`
+    来取真实返回码，不回标记时按「没执行」处理（不猜成功）。
+    """
     sent = []
+    RC = SSHDriver.RC_MARKER
 
     class Conn:
-        def send_command(self, cmd):
+        def send_command(self, cmd, **kw):
             sent.append(cmd)
-            return 'real-output'
+            return f'\nreal-output\n {RC}0\n'
 
         def disconnect(self):
             pass
@@ -121,8 +127,9 @@ def test_execute_really_runs_when_enabled(monkeypatch):
     monkeypatch.setitem(sys.modules, 'netmiko', netmiko)
     _mk_env(monkeypatch)
     r = SSHDriver().execute('show version')
-    assert r.success is True and r.output == 'real-output'
-    assert sent == ['show version'], '命令必须真发到设备上'
+    assert r.success is True, f'退出码 0 应报成功，实际 {r.output!r}'
+    assert 'real-output' in r.output
+    assert sent and 'show version' in sent[0], '命令必须真发到设备上'
 
 
 def test_execute_failure_is_reported_not_swallowed(monkeypatch):

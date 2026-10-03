@@ -49,11 +49,23 @@ up() {
   docker network connect --ip "$R2_R2NET" "$LAB_R2NET" nm-r2
 
   # client1 / client2 的地址不同，循环里必须按序号取，不能两个都给 CLIENT1_IP
+  # 客户端：client2 额外装了 iproute2——自愈闭环要在这台设备上真下发
+  # tc qdisc del，而 alpine 基础镜像不带 iproute2（tc 在单独的包里）。
+  # 没有它，自愈只能生成命令下发到没 tc 的设备上，验证不了「真改变了什么」。
   for c in 1 2; do
     cip=$([ "$c" = 1 ] && echo "$CLIENT1_IP" || echo "$CLIENT2_IP")
     docker run -d --name "nm-client$c" --hostname "client$c" --network "$LAB_SW1" \
-      --ip "$cip" --cap-add=NET_ADMIN --cap-add=NET_RAW alpine:3.19 sleep 1d >/dev/null
+      --ip "$cip" --cap-add=NET_ADMIN --cap-add=NET_RAW \
+      -e PASSWORD=netmind123 -e PASSWORD_ACCESS=true \
+      -e USER_NAME=netmind -e USER_PASSWORD=netmind123 -e USER_PASSWORD_ACCESS=true \
+      -e SUDO_ACCESS=true linuxserver/openssh-server >/dev/null
   done
+  # 等 sshd 就绪后给 client2 装 tc
+  sleep 8
+  docker exec nm-client2 sh -c 'apk add --no-cache iproute2 >/dev/null 2>&1 || true'
+  # 监控账号用 NOPASSWD sudo 提权。生产里也应如此：让工具去提示输密码既不可用
+  # 也不安全。NetMind 的 NETMIND_SUDO 依赖这个前提。
+  docker exec nm-client2 sh -c "echo 'netmind ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/netmind && chmod 440 /etc/sudoers.d/netmind" 2>/dev/null || true
   sleep 4   # 等 FRR 的 watchfrr 把 zebra 拉起来
 
   # 被监控主机：真实 SSH 端点，主链路的探测从这里发起。
@@ -75,6 +87,7 @@ up() {
 
   echo "实验台就绪：client1(${CLIENT1_IP}) → r1(${R1_SW1}) → r2(${R2_R2NET}) → ${FAR_SEG}"
   echo "  被监控主机 dev1 = 192.168.1.30:2222（netmind/netmind123），主链路从这里探测"
+  echo "  可处置主机 client2 = ${CLIENT2_IP}:2222（netmind/netmind123），带 tc，自愈闭环在这里跑"
 }
 
 # 采一次真实 ping，输出原始报文（供解析，不在此处做判定）

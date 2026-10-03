@@ -42,6 +42,41 @@ scripts/lab.sh measure   # 采三态原始数据
 
 原始数据：`tests/fixtures/lab/closed-loop-run.json`
 
+## 走真实 SSH 下发的自愈（`TelemetryService.heal()`）
+
+上表的 S1/S2 走的是 `diagnose/closed_loop.py` 的闭环。这一节是另一条路径：
+主链路的 `TelemetryService.heal()` —— 生成命令 → 过安全门 → **TransactionManager
+经 SSH 真下发** → 重测对比。注入点、探测点、下发点同为 client2，所以改善只可能
+来自这条命令，不来自别处。
+
+复现（容器 `nm-client2` 需带 `tc` 与 NOPASSWD sudo，见 `scripts/lab.sh up`）：
+
+```bash
+# 环境：driver 指向可处置主机 client2，探测从 client2 打 dev1
+NETMIND_DRIVER=ssh NETMIND_SSH_HOST=192.168.1.11 NETMIND_SSH_PORT=2222 \
+NETMIND_SSH_USERNAME=netmind NETMIND_SSH_PASSWORD=netmind123 \
+NETMIND_ENABLE_REAL_COMMANDS=true NETMIND_SUDO=true \
+NETMIND_PROBE_TARGET=192.168.1.30 .venv/bin/python scripts/verify_heal.py
+```
+
+| 步骤 | 观测 | 来源 |
+|---|---|---|
+| 注入拥塞 | `qdisc netem 801f: root ... delay 150ms loss 10%` | 设备侧 `tc qdisc show` |
+| 探测 | 延迟 150.277ms / 丢包 0.1 / `source=real` | 主链路真探测 |
+| 诊断 | `congestion`，置信度 0.394 | 证据 `{packet_loss:0.1, latency_ms:150.277}` |
+| 生成并下发 | `tc qdisc del dev eth0 root`，`mode=real` | TransactionManager 经 SSH |
+| 设备侧读回 | `qdisc noqueue 0: root refcnt 2` | 设备侧 `tc qdisc show` |
+| 重测 | 延迟 0.203ms / 丢包 0.0 | 主链路真探测 |
+
+结果 `success=True, verified=True`。设备侧 qdisc 从 `netem` 变回 `noqueue` 是独立于
+NetMind 自报的第三份证据——命令确实在设备上执行了，不是本地变量改了改。
+
+**这次跑测本身抓到的一个真问题**：第一次跑时探测静默降级成了模拟器
+（`source=simulated`），而脚本照样输出了一个「看起来正常」的 0.203ms 结论。
+原因是 env 名写错（`NETMIND_SSH_USER` vs 实际认的 `NETMIND_SSH_USERNAME`）。
+**这正是诚实表存在的理由**——快照自带 `source`，脚本才能发现自己测的是模拟器。
+若当初 `source` 是硬编码常数，这个假结论会一路写进报告。
+
 ## 真实路由表（zebra 输出，非推断）
 
 ```
@@ -94,6 +129,12 @@ False；重测没改善则触发回滚并如实记录；探针挂了就记异常
   直连与静态路由，**没有** OSPF/BGP 等动态协议的邻居与收敛数据。
 - **「处置」= 清除实验台注入的故障**，不是「自动修复真实网络故障」。它证明的是闭环
   机制本身不撒谎，**不**证明 NetMind 能修好真实网络。
+- **自愈只验过 congestion 一条路径**：`link_down`（下发 `ip route add`）与
+  `anomaly_traffic`（下发 `tc qdisc add netem rate`）的方案生成与安全门有测试覆盖，
+  但**没有**在设备上实跑过。`config_error` 刻意不给自动处置——`ovs-ofctl del-flows`
+  属危险操作，只放行带 NetMind cookie 的流表，拿不到归属证明就不该自动动手。
+- **单台设备、单接口、单方向**：自愈验证全部在 client2 的 eth0 上完成。
+  **不能**据此声称多设备联动或路径切换正确。
 - **样本量小**：每场景 10 个包（命令见上「复现」节），S1 的丢包率在不同轮次
   实测到 0% 与 10% 两种结果（netem 的随机性，原始数据见
   `tests/fixtures/lab/throughput-real.json`），**不能**拿单次数字做 SLA 承诺。
@@ -104,6 +145,6 @@ False；重测没改善则触发回滚并如实记录；探针挂了就记异常
 |---|---|
 | Lab data collection | S0–S3 全部来自活实验台实测 |
 | Post-apply verification | ✅ 已实现——S1/S2 的 `verified=True` 即重测完成 |
-| Healing action | ⚠️ 仅在实验台成立（清除注入故障），真实网络故障未验证 |
+| Healing action | ✅ Real（机制层）—— 处置是真命令，过安全门后经 SSH 真下发并重测；`congestion` 路径在真实设备端到端跑通，见上节。⚠️ `link_down`/`anomaly_traffic` 路径尚未在设备上实跑，真实生产故障未验证 |
 | Diagnosis thresholds | ⚠️ 阈值为单一拓扑标定；带宽判定需基线，无基线时跳过 |
 | Routing state | ✅ Real — zebra 真实路由表（仅直连+静态，无动态协议） |

@@ -40,6 +40,8 @@ def test_fault_heal():
     # 模拟路径没有做真实重测，因此不得报成功。此前这里断言 success 为真，
     # 等于把「处置必然成功」这个假象固化成了测试契约——真闭环的 success
     # 由实测前后对比推出，见 test_closed_loop.py。
+    # 缺处置参数时不得编造动作：没有 iface 不知道该清哪个整形队列。
+    # 必须如实说明缺什么、且 success=False。
     assert heal['verified'] is False
     assert heal['success'] is False
-    assert '不报成功' in heal['summary']
+    assert '未产生任何设备侧变更' in heal['summary']

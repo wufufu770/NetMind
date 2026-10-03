@@ -34,7 +34,6 @@ class TransactionManager:
         STORE.register_flow_cookies(planned, execution_id)
         executed=[]
         applied=[]        # 已成功下发的 (命令, 所属策略) —— 回滚只看这个
-        rb_all_ok=True
 
         def _rollback(reason: str) -> tuple[bool, bool | None]:
             """回滚已下发的东西。返回 (是否触发过回滚, 是否全部成功)。

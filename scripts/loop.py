@@ -35,11 +35,31 @@ PRIORITY_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
 
 # ------------------------------------------------------------------ 状态读写
 
+# load() 时刻的磁盘内容指纹。save() 时比对——中间若被别人改过，
+# 就拒绝覆盖。这一条是被真实丢更新事件逼出来的：一次 round 要跑三分钟，
+# 期间手动或并行写入的 retro 条目会被这进程用自己三分钟前的旧快照整个盖掉，
+# 写进去的东西无声消失，人只会以为「保存了」。
+_LOADED_DIGEST: str | None = None
+
+
+def _digest(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ''
+
+
 def load() -> dict:
+    global _LOADED_DIGEST
+    _LOADED_DIGEST = _digest(STATE_PATH)
     return json.loads(STATE_PATH.read_text(encoding='utf-8'))
 
 
 def save(st: dict) -> None:
+    global _LOADED_DIGEST
+    if _LOADED_DIGEST is not None and _digest(STATE_PATH) != _LOADED_DIGEST:
+        raise SystemExit(
+            '⛔ 拒绝落盘：state.json 在本进程读取之后被改过。\n'
+            '   本进程持有的是旧快照，直接写会把别人的改动无声覆盖。\n'
+            '   请重新运行本命令；若确认要放弃他人改动，先 git checkout 状态文件。')
     # 字段名是 based_on 不是 head：save() 发生在提交**之前**，所以这里记下的
     # HEAD 永远是「本状态基于哪个 commit 写下的」，不可能是「包含本状态的
     # 那个 commit」——那是自指的，结构上做不到。叫 head 会让人以为它标识
@@ -49,6 +69,7 @@ def save(st: dict) -> None:
         ['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT,
         capture_output=True, text=True).stdout.strip()
     STATE_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    _LOADED_DIGEST = _digest(STATE_PATH)
 
 
 # ------------------------------------------------------------------ 指标
