@@ -408,6 +408,49 @@ assert re.search(r'`(scripts|backend|docs|tests)/', body), \
 """,
     ),
     Gate(
+        id='no-missing-as-zero',
+        desc='缺失值不得渲染成 0（`x || 0` 把「没测」说成「测了，是 0」）',
+        on_fail='block',
+        check=r"""
+# 真浏览器验证时抓到的：面板上「端到端延迟 --ms」却在同一张卡片的副标题里
+# 写着「丢包率 0.00%」——后端返回的是 `packet_loss: null`，前端那个
+# `Number(metrics.packet_loss || 0)` 把它变成了 0%。同一张卡片自相矛盾。
+#
+# 之所以躲过了前几轮的清理：metricValue 守的是 `value` 属性，而这一处躲在
+# 模板字符串里做 `* 100` 再 `toFixed`。凡是「先 `|| 0` 兜底、再参与算术或
+# 格式化」的地方，都是同一个坑。
+import re as _re
+app_jsx = (ROOT / 'frontend' / 'src' / 'App.jsx').read_text(encoding='utf-8')
+code = '\n'.join(l.split('//')[0] for l in app_jsx.splitlines())
+
+MEASURE_WORDS = ('latency_ms', 'packet_loss', 'throughput_mbps', 'duration_ms',
+                 'confidence', 'avg_latency', 'avg_rtt', 'rtt_avg', 'loss_ratio')
+# 逐行做子串判断，不用正则——`\s` 在本文件的 raw string 里容易被多写一层反斜杠，
+# 写出「匹配字面反斜杠」的检查，然后在别处莫名命中
+hits = []
+for line in code.splitlines():
+    for w in MEASURE_WORDS:
+        if w + ' || 0' in line:
+            hits.append(line.strip()[:110])
+            break
+assert not hits, (
+    '这些地方用 `指标 || 0` 把缺失值变成 0——渲染出来是「测了，是 0」：\n    '
+    + '\n    '.join(hits))
+
+# 兜底值必须走被测的显示函数，而不是就地写死
+disp = (ROOT / 'frontend' / 'src' / 'lib' / 'display.js').read_text(encoding='utf-8')
+# 测试可能按主题拆成多个文件（display.test.js / display.percent.test.js …），
+# 只查其中一个会把正确拆分的测试判成「没测」
+tests = '\n'.join(p.read_text(encoding='utf-8')
+                  for p in (ROOT / 'frontend' / 'src' / 'lib').glob('display*.test.js'))
+assert tests, 'frontend/src/lib 下找不到 display*.test.js'
+assert 'percentText' in disp, '缺 percentText()——比率没有统一的缺失值处理'
+assert 'percentText' in tests, 'percentText() 没有测试'
+for fn in ('metricValue', 'healthScore', 'summaryCell', 'confidenceText', 'percentText'):
+    assert fn in app_jsx, f'App.jsx 未使用被测函数 {fn}()'
+""",
+    ),
+    Gate(
         id='frontend-is-production-served',
         desc='面板由生产构建 + nginx 同源托管，不是 Vite dev server',
         on_fail='block',

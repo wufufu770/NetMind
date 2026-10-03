@@ -85,3 +85,17 @@ export function writeAction(authMode, label = '该操作') {
     title: `当前是只读身份，${label}需要管理员凭据（NETMIND_ADMIN_TOKEN）`,
   };
 }
+
+/** 比率显示成百分比。null/undefined 显示占位符，**不显示 0%**。
+ *
+ * 面板上真实出现过这个矛盾：后端返回 `packet_loss: null`（没数据），
+ * 前端却用 `Number(x || 0)` 渲染成「丢包率 0.00%」——同一张卡片里
+ * 延迟显示 `--`、丢包显示 0%，等于把「没测」说成「测了，是 0」。
+ * 那个 `|| 0` 躲在模板字符串里，躲过了 metricValue 的检查。
+ */
+export function percentText(value, placeholder = '--') {
+  if (value === null || value === undefined || value === '') return placeholder;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return placeholder;
+  return `${(n * 100).toFixed(2)}%`;
+}

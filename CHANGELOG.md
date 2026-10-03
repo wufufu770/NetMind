@@ -3,6 +3,16 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- **面板上「丢包率 0.00%」而延迟是 `--`**。真浏览器验证时抓到的：后端返回
+  `packet_loss: null`（没采到数据），前端 `Number(metrics.packet_loss || 0)`
+  把它变成 0% 并渲染成「丢包率 0.00%」——同一张卡片里延迟显示 `--`、丢包显示
+  0%，等于把「没测」说成「测了，是 0」。躲过了前几轮清理是因为 `metricValue`
+  守的是 `value` 属性，而这一处躲在模板字符串里做 `* 100` 再 `toFixed`。
+  新增 `percentText()`（null 显示 `--`，真实的 0 照实显示 0.00%）并接上；
+  同类的 `step.duration_ms || 0` 也改为 null 时显示 `—`。
+  门禁 `no-missing-as-zero` 锁死这一类
+
 ### Changed
 - **面板改为生产托管**。此前 `frontend` 容器跑的是 `npm run dev`（Vite dev
   server）——把开发服务器当产品发出去，谈不上「可直接商用」：HMR 端点暴露、

@@ -43,7 +43,7 @@ import {
 import { compactLabel, displayToolName, executionLabel, localizeJsonText } from './lib/format.js';
 import { authHeaders, describeAuthFailure } from './lib/auth.js';
 import { apiUrl as apiPath, resolveApiBase, wsUrl as wsPath } from './lib/api.js';
-import { confidenceText, healthRing, healthScore, isReadonly, metricTone, metricValue, summaryCell, writeAction } from './lib/display.js';
+import { confidenceText, healthRing, healthScore, isReadonly, metricTone, metricValue, percentText, summaryCell, writeAction } from './lib/display.js';
 import './style.css';
 
 // 同源优先：没有 CORS、没有预检、凭据不跨域。构建期变量只作为开发时的覆盖手段，
@@ -500,7 +500,7 @@ function Dashboard({ setPage, setToast, refreshKey }) {
       {error && <InlineError text={error} />}
       <div className="metrics-grid compact three">
         <StatCard label="SLA 达成率" value={metrics.sla} unit="%" tone="neutral" hint={metrics.sla_reason || '未定义 SLO 目标'} icon={Gauge} onClick={() => setPage('verification')} />
-        <StatCard label="端到端延迟" value={metrics.latency_ms} unit="ms" tone={metricTone(metrics.latency_ms, { warnAbove: 50 })} subMetrics={`丢包率 ${((Number(metrics.packet_loss || 0)) * 100).toFixed(2)}% · 吞吐 ${metrics.throughput_mbps ?? '--'} Mbps`} icon={Activity} onClick={() => setPage('telemetry')} />
+        <StatCard label="端到端延迟" value={metrics.latency_ms} unit="ms" tone={metricTone(metrics.latency_ms, { warnAbove: 50 })} subMetrics={`丢包率 ${percentText(metrics.packet_loss)} · 吞吐 ${metricValue(metrics.throughput_mbps)} Mbps`} icon={Activity} onClick={() => setPage('telemetry')} />
         <StatCard label="活跃告警" value={alertCount} tone={alertCount ? 'warn' : 'ok'} hint={alertCount ? '需要处理' : '暂无异常'} icon={AlertTriangle} onClick={() => setPage(alertCount ? 'verification' : 'logs')} />
       </div>
 
@@ -783,7 +783,7 @@ function AgentSteps({ steps, setToast }) {
           <span>{index + 1}</span>
           <div>
             <b>{step.agent}</b>
-            <small>{statusLabels[step.status] || step.status} · {step.duration_ms || 0}ms</small>
+            <small>{statusLabels[step.status] || step.status} · {step.duration_ms == null ? '—' : `${step.duration_ms}ms`}</small>
           </div>
           <ChevronRight size={15} />
         </button>

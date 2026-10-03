@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 34,
+  "cycle": 35,
   "phase": "plan",
-  "updated": "2026-10-03T22:46:46+08:00",
+  "updated": "2026-10-03T23:19:28+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,9 +22,9 @@
   "metrics": {
     "tests_collected": 272,
     "gates_total": 22,
-    "gates_passed": 36,
+    "gates_passed": 37,
     "gates_warned": 0,
-    "src_lines": 14443,
+    "src_lines": 14486,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -434,6 +434,18 @@
       "gates_passed": 36,
       "gates_warned": 0,
       "src_lines": 14443,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 35,
+      "tests_collected": 272,
+      "gates_total": 22,
+      "gates_passed": 37,
+      "gates_warned": 0,
+      "src_lines": 14486,
       "generic_names": 195,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -947,6 +959,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "real-browser-verification",
+      "title": "第一次在真浏览器里跑面板 —— 抓到一个 HTTP 层看不见的谎报",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -1245,6 +1265,14 @@
       "shipped": "**前端容器改为生产托管**：多阶段构建（npm ci → npm run build → 只把 dist/ 拷进 nginx 镜像，74MB，源码与 node_modules 不进最终镜像），指纹资源 `/assets/*` 长缓存 `immutable`、`index.html` `no-store`，容器级 `/healthz` 由 nginx 自己答。此前是 `npm run dev`——HMR 端点暴露、源码不压缩、构建产物根本不进镜像。**API 基址改为启动时注入，默认同源**。此前 `VITE_*` 构建期烤死，镜像里带着 VITE_API_URL=http://localhost:8000——同一份镜像换访问地址就指错地方，且跨源发 Authorization 头会触发 CORS 预检（失败表现像网络问题，很难查）。现在 nginx 在启动时替换 index.html 的注入点，默认空串 = 同源，由 nginx 把 /api 与 /ws 反代到后端。**compose 补 healthcheck**，frontend 用 `condition: service_healthy` 等后端真的就绪，而不是「容器起来了」。**vite.config.js 配同样的代理**，开发与生产的请求形状一致。端到端实测：面板 200、同源 /api 不带 token 401、带 token 200、前端容器探活 ok、页面无 @vite/client（确认生产构建而非 dev server）、指纹资源 immutable 而 index.html no-store。新增 frontend/src/lib/api.js（resolveApiBase / apiUrl / wsUrl，9 个测试，前端 34→43），其中 https 页面必须走 wss——否则浏览器按混合内容拒掉。新增门禁 frontend-is-production-served 锁住八项。**过程中踩了两个坑，都写进门禁注释**：① nginx 把 ${...} 当成自己的变量，配置放 conf.d 会以 unknown variable 退出（实测容器直接 Exited(1)），必须放 templates/ 让 entrypoint 做 envsubst；② 门禁查 compose 时得先剥注释，否则「不再需要设 VITE_API_URL」这句说明会把自己判成违规。**还犯了一次操作错误**：做反例时用 git checkout 还原 docker-compose.yml，把我自己尚未提交的改动一起还原了——反例实验不该用会丢工作的命令还原。门禁 35→36 条全绿，后端 272、前端 43、去 AI 味门 0 命中。",
       "at": "2026-10-03T22:46:46+08:00",
       "based_on": "a55a930"
+    },
+    {
+      "cycle": 35,
+      "id": "real-browser-verification",
+      "title": "第一次在真浏览器里跑面板 —— 抓到一个 HTTP 层看不见的谎报",
+      "shipped": "**真浏览器端到端验证**（puppeteer + Chromium，npm registry 可达，装了 chrome@154）：面板确实渲染——React 挂载、导航在、拓扑图出得来、无页面错误；`window.__NETMIND_API__` 为 `\"\"`（同源，注入点被正确替换）；生产 bundle 里 `localhost:8000` 出现 **0 次**（地址确实没被烤死）。没配凭据时的体验也验证了：红色横幅直接给出可复制的 `localStorage.setItem(...)` 指引，指标一律显示 `--`，空状态诚实。**抓到真缺陷**：同一张卡片上「端到端延迟 --ms」却在副标题写着「丢包率 0.00%」——后端返回 `packet_loss: null`，前端 `Number(x || 0)` 把它变成 0%。**把「没测」说成「测了，是 0」。**躲过前几轮清理是因为 metricValue 守的是 `value` 属性，而这一处躲在模板字符串里做 `* 100` 再 toFixed。新增 percentText()（null → `--`，真实的 0 照实显示 0.00%），同类的 `step.duration_ms || 0` 改为 null 显示 `—`；真浏览器复验确认「丢包率 0.00%」已变成「丢包率 --」，三个指标一致。新增门禁 no-missing-as-zero，按指标字段名逐行扫 `|| 0`，要求显示函数仍被使用且有测试；两个方向都验过。前端测试 43→46。**门禁自己写错过两次，都记在 retro**：① 正则在 raw string 里多写一层反斜杠，变成匹配字面反斜杠，在无关行上误报，改为逐行子串判断；② 只查 display.test.js，把按主题拆成 display.percent.test.js 的正确拆分判成「没测」，改为 glob。**另记一次未定位的失败**：某次全量跑 36/37，当时只截了输出尾部没抓到是哪条；随后逐条单跑全过、连续两次全量都是 37/37。没有复现就没有定位也没有修复，不写成「已解决」。门禁 36→37 条全绿，后端 272、前端 46、去 AI 味门 0 命中。",
+      "at": "2026-10-03T23:19:28+08:00",
+      "based_on": "8fb17fb"
     }
   ],
   "retro": [
@@ -1751,17 +1779,33 @@
       "root_cause": "上一轮把「前端跑的是 Vite dev server」记成待办，说「属另一轮范围」。这轮做掉时发现它牵出一个更隐蔽的问题：`VITE_*` 是**构建期**注入的，所以镜像里烤死了 VITE_API_URL=http://localhost:8000——同一份镜像换访问地址就指错地方（「用别人的浏览器访问你这台机器」时那个 localhost 指的是访问者自己），而且跨源发 Authorization 头会触发 CORS 预检，预检失败的表现常常像网络问题，很难查。把开发服务器当产品发出去则谈不上「可直接商用」：HMR 端点暴露、源码不压缩、构建产物根本不进镜像。",
       "fix": "多阶段构建 → nginx 托管 dist/（74MB，源码与 node_modules 不进最终镜像），/api 与 /ws 同源反代，API 基址改为**启动时**注入（nginx 替换 index.html 的注入点），默认空串 = 同源。补 healthcheck，frontend 用 service_healthy 等后端真的就绪。端到端实测：面板 200、同源 /api 不带 token 401、带 token 200、前端容器探活 ok、页面无 @vite/client（确认是生产构建）、指纹资源 immutable 而 index.html no-store。vite.config.js 配同样的代理，开发与生产请求形状一致。两个坑记在门禁里：① nginx 把 ${...} 当自己的变量，配置必须放 templates/ 让 entrypoint 做 envsubst，直接写 conf.d 会以 unknown variable 退出（实测踩过）；② 门禁查 compose 时必须先剥注释，否则「不再需要设 VITE_API_URL」这句说明会把自己判成违规。",
       "at": "2026-10-03T22:50:00+08:00"
+    },
+    {
+      "cycle": 35,
+      "gate": "no-missing-as-zero",
+      "on_fail": "block",
+      "root_cause": "这一类缺陷躲过了前几轮清理：`metricValue` 守的是 StatCard 的 `value` 属性，而面板副标题那行把 `metrics.packet_loss || 0` 放进模板字符串里做 `* 100` 再 toFixed。真浏览器里看得很清楚：同一张卡片「端到端延迟 --ms」却写着「丢包率 0.00%」——后端返回的是 null（没采到数据），前端说成 0。凡是「先 `|| 0` 兜底、再参与算术或格式化」的地方都是同一个坑。**一个只守住入口属性的检查，挡不住从模板字符串绕过去的同类缺陷。**",
+      "fix": "新增 percentText()（null → `--`，真实的 0 照实显示 0.00%），同类的 step.duration_ms || 0 改为 null 时显示 `—`；门禁 no-missing-as-zero 按指标字段名逐行扫 `|| 0`，并要求这些显示函数仍被 App.jsx 使用且有测试。门禁自己写错过两次：① 正则在 raw string 里多写了一层反斜杠，变成匹配字面反斜杠，在无关行上误报；改为逐行子串判断。② 只查 display.test.js，把按主题拆成 display.percent.test.js 的正确拆分判成「没测」；改为 glob display*.test.js。",
+      "at": "2026-10-03T23:20:00+08:00"
+    },
+    {
+      "cycle": 35,
+      "gate": "(未定位)",
+      "on_fail": "block",
+      "root_cause": "一次全量门禁跑出 36/37，但当时只截了输出尾部，没抓到是哪条失败。随后逐条单跑全过、连续两次全量跑都是 37/37。**没有复现，就没有定位，也就没有修复。** 不把它写成「已解决」——那等于把一个没查清的现象记成结论。",
+      "fix": "待查。若再出现，需捕获完整门禁输出（不要只 grep 尾部）定位到具体 id。候选：tests-green（真跑 pytest，最容易受外部状态影响）。",
+      "at": "2026-10-03T23:25:00+08:00"
     }
   ],
-  "gates_total": 36,
+  "gates_total": 37,
   "next_round": {
     "id": "B1-appjsx",
     "title": "App.jsx 1885 行解耦为 pages/components/hooks",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T22:46:39+08:00"
+    "planned_at": "2026-10-03T23:19:18+08:00"
   },
-  "based_on": "a55a930",
+  "based_on": "8fb17fb",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
