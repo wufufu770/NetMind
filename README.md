@@ -27,6 +27,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Config-change proposal (diff, danger marking, reviewable Markdown) | ✅ Real (`core/config_diff.py`, 8 tests) |
 | Lab data collection (real ICMP + NIC counters) | ✅ Real (`diagnose/lab_collector.py` + `scripts/lab.sh`, 11 tests on real captures) |
 | Routing state | ✅ Real — FRR/zebra 路由表（仅直连+静态，无 OSPF/BGP） |
+| Diagnosis confidence | ✅ Derived — every diagnosis, **including `normal`**, derives confidence from margin-to-threshold, sample count, and whether the data is real or simulated; with no samples at all the verdict is `normal` at confidence `0.0` with a stated reason; ⚠️ previously the `normal` branch returned a bare `Diagnosis(type='normal')` and took the schema default `0.9`, so 1 sample and 10 samples, a reading at 45 ms and one at 1 ms, and simulated vs. real data all scored identically |
 | Diagnosis thresholds | ⚠️ Calibrated on one lab topology; `throughput` judgement needs a baseline and is skipped when absent |
 | Post-apply verification | ✅ Real — `diagnose/closed_loop.py`; `success` 由实测前后对比推出，未重测即 `verified=False`（跑测见 `docs/closed-loop-run-report.md`） |
 | Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 路径已在真实设备端到端跑通（150.277ms→0.203ms，设备侧 qdisc `netem`→`noqueue` 读回确认）；⚠️ **auto-remediation is off unless `NETMIND_HEAL_IFACE` is set** — the interface is never guessed, since guessing wrong targets the wrong port; ⚠️ `link_down` path not yet exercised on a device; real production faults unverified |

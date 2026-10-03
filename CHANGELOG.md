@@ -3,6 +3,15 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- **「一切正常」是全项目唯一不经过推导的诊断结论**。异常分支的置信度早已改成按
+  证据推导，但 `return Diagnosis(type='normal')` 漏了——吃到 schema 默认的
+  confidence=0.9。实测三个后果：样本量 1 与 10 给出同一个 0.9；读数贴阈值
+  （45ms vs 50ms 门限）与读数极低（1ms）同样给 0.9；**`sim` 折扣在正常分支
+  完全没生效**——模拟数据得出的「一切正常」和真实数据一样自信。
+  一个样本都没有时也报 0.9。现按「离阈值多远 × 样本量 × 数据是否真实」推导，
+  无样本时返回 0.0 并说明原因。门禁 `no-unearned-confidence` 锁死
+
 ### Added
 - 门禁 `fixtures-are-self-consistent`：真实抓包必须**自证**。ping 文件自报的
   transmitted/received 与 round-trip min/avg/max 要与它自己的报文行对得上，

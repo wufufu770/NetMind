@@ -20,8 +20,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from app.core import telemetry as tel
-from app.core.telemetry import (LOSS_DEGRADED, LOSS_LINK_DOWN, TELEMETRY,
-                                _confidence, _real_snapshot)
+from app.core.telemetry import (LATENCY_DEGRADED_MS, LOSS_DEGRADED, LOSS_LINK_DOWN,
+                                TELEMETRY, _confidence, _real_snapshot)
 from app.diagnose.lab_collector import classify, parse_ping, to_snapshot
 from app.schemas import TelemetrySnapshot
 
@@ -178,3 +178,53 @@ def test_probe_output_without_stats_is_not_accepted(monkeypatch):
     snap, why = _real_snapshot()
     assert snap is None, '没采到报文统计却给出了快照'
     assert why
+
+
+# ---------- 「一切正常」也得有依据 ----------
+#
+# 此前这条路径直接 `Diagnosis(type='normal')`，吃到 schema 默认的
+# confidence=0.9：样本量 1 与 10 给出同一个数、读数贴阈值与极低给出同一个数、
+# 模拟数据与真实数据也给出同一个数。而「一切正常」恰恰是全项目最常出现的
+# 诊断结论，也是最容易被当成「系统没问题的证明」的那一条。
+
+def _snap(latency, loss=0.0, source='real'):
+    return TelemetrySnapshot(latency_ms=latency, packet_loss=loss,
+                             throughput_mbps=50, alert=False, source=source)
+
+
+def test_normal_without_samples_claims_no_confidence():
+    d = TELEMETRY.diagnose([])
+    assert d.type == 'normal'
+    assert d.confidence == 0.0, f'没有样本却说 {d.confidence} 的把握'
+    assert '没有任何' in str(d.evidence)
+
+
+def test_normal_confidence_rises_with_sample_count():
+    one = TELEMETRY.diagnose([_snap(1.0)])
+    ten = TELEMETRY.diagnose([_snap(1.0)] * 10)
+    assert ten.confidence > one.confidence, (
+        f'样本量从 1 到 10 置信度没变（{one.confidence} → {ten.confidence}）'
+        '——「依据变多」不体现在结论上')
+
+
+def test_normal_confidence_drops_when_reading_near_the_threshold():
+    clear = TELEMETRY.diagnose([_snap(1.0)] * 10)
+    near = TELEMETRY.diagnose([_snap(LATENCY_DEGRADED_MS - 5)] * 10)
+    assert clear.type == near.type == 'normal'
+    assert near.confidence < clear.confidence, (
+        '读数贴着劣化阈值时，说「正常」的把握不应与读数极低时相同')
+
+
+def test_normal_from_simulated_data_is_discounted():
+    real = TELEMETRY.diagnose([_snap(1.0)] * 10)
+    sim = TELEMETRY.diagnose([_snap(1.0, source='simulated')] * 10)
+    assert sim.type == real.type == 'normal'
+    assert sim.confidence < real.confidence, (
+        '模拟数据得出的「一切正常」与真实数据一样自信——sim 折扣在正常分支没生效')
+
+
+def test_normal_carries_its_evidence():
+    d = TELEMETRY.diagnose([_snap(3.2, 0.001)] * 4)
+    assert d.type == 'normal'
+    assert d.evidence.get('latency_ms') == 3.2
+    assert d.evidence.get('samples') == 4

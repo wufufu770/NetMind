@@ -108,6 +108,58 @@ finally:
 """,
     ),
     Gate(
+        id='no-unearned-confidence',
+        desc='诊断置信度必须由可观测状态推导，不吃 schema 默认值',
+        on_fail='block',
+        check=r"""
+# CONTRIBUTING 规则 2：置信度须由可观测状态推导。反复出现的缺陷形态是
+# 「默认值被当成观测值」——面板的 sla=98、状态端点的 healthy=true、
+# Diagnosis.confidence 的 0.9，都是同一类。
+#
+# 这条查的是最后那一类：异常分支的置信度早已改成按证据推导，但
+# `return Diagnosis(type='normal')` 漏了——**全项目最常出现的那个结论，
+# 恰恰是唯一不经过任何推导的**。实测：样本量 1 与 10 给同一个 0.9、
+# 读数贴阈值与极低给同一个 0.9、模拟数据与真实数据也给同一个 0.9。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+os.environ.pop('NETMIND_ADMIN_TOKEN', None)
+os.environ.pop('NETMIND_PROBE_TARGET', None)
+from app.store import STORE                                        # noqa: E402
+# diagnose([]) 会回退到 STORE.telemetry[-3:]，而门禁进程里是带种子数据的 store。
+# 不隔离就测不到「真的一个样本都没有」这条——它会读到种子遥测并判成 congestion。
+_saved_telemetry = list(STORE.telemetry)
+try:
+    STORE.telemetry.clear()
+    from app.core.telemetry import (LATENCY_DEGRADED_MS, TELEMETRY)   # noqa: E402
+    from app.schemas import TelemetrySnapshot                          # noqa: E402
+
+    def snap(lat, loss=0.0, src='real'):
+        return TelemetrySnapshot(latency_ms=lat, packet_loss=loss,
+                                 throughput_mbps=50, alert=False, source=src)
+
+    empty = TELEMETRY.diagnose([])
+    assert empty.type == 'normal' and empty.confidence == 0.0, \
+        f'一个样本都没有却报 {empty.type}/{empty.confidence} 的把握'
+    assert empty.evidence, '无样本时必须说明为什么判不了'
+
+    one = TELEMETRY.diagnose([snap(1.0)])
+    ten = TELEMETRY.diagnose([snap(1.0)] * 10)
+    near = TELEMETRY.diagnose([snap(LATENCY_DEGRADED_MS - 5)] * 10)
+    sim = TELEMETRY.diagnose([snap(1.0, src='simulated')] * 10)
+
+    assert ten.confidence > one.confidence, \
+        f'样本量 1→10，置信度没变（{one.confidence}）——「依据变多」不体现在结论上'
+    assert near.confidence < ten.confidence, \
+        '读数贴着劣化阈值时说「正常」的把握与读数极低时相同'
+    assert sim.confidence < ten.confidence, \
+        '模拟数据得出的「一切正常」与真实数据一样自信——sim 折扣在正常分支没生效'
+    assert all(d.type == 'normal' for d in (one, ten, near, sim))
+finally:
+    STORE.telemetry.clear()
+    STORE.telemetry.extend(_saved_telemetry)
+""",
+    ),
+    Gate(
         id='fixtures-are-self-consistent',
         desc='真实抓包 fixture 内部自洽：自报统计必须与自己的报文行对得上',
         on_fail='block',

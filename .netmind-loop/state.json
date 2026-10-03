@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 30,
+  "cycle": 31,
   "phase": "plan",
-  "updated": "2026-10-03T20:50:27+08:00",
+  "updated": "2026-10-03T21:38:07+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,11 +20,11 @@
     }
   },
   "metrics": {
-    "tests_collected": 267,
+    "tests_collected": 272,
     "gates_total": 22,
-    "gates_passed": 33,
+    "gates_passed": 34,
     "gates_warned": 0,
-    "src_lines": 14171,
+    "src_lines": 14304,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -386,6 +386,18 @@
       "gates_passed": 33,
       "gates_warned": 0,
       "src_lines": 14171,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 31,
+      "tests_collected": 272,
+      "gates_total": 22,
+      "gates_passed": 34,
+      "gates_warned": 0,
+      "src_lines": 14304,
       "generic_names": 195,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -867,6 +879,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "no-unearned-confidence",
+      "title": "「一切正常」是全项目唯一不经过推导的诊断结论",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -1133,6 +1153,14 @@
       "shipped": "新增门禁 fixtures-are-self-consistent：ping 抓包的自报统计（transmitted/received、round-trip min/avg/max）必须与文件里**自己的报文行**对得上，seq 必须连续，断链态不得出现 round-trip 行；throughput-real.json 的 key_finding 引用的每个实测值，必须在 states 或任一抓包里查得到——悬空的数字是「结论看起来有据、实际查无此数」。这组内部约束本来就写在抓包文件里，只是从没人核对过。已用两种编法验证它有牙齿：① 统计行照抄真数据、只把回包的 time 随手编 → 抓出 round-trip 与实际 min/max/avg 三项全不符；② RTT 行做得自洽、只把收包数从 10 改成 12 → 抓出自报 12 个回包但文件里只有 10 行。两种编法都能「看起来很真」，两种都被抓住——这正是这组约束的价值。过程中自己写错过一次：第一版只在上拥塞态抓包里查 key_finding 引用的数字，把 21.08（健康态带宽）误报成悬空。门禁误报比不报更伤信任，已改为在整个真实数据集里查。fixture 已完全还原（git diff 为空）。**如实记录未做的部分**：真正的实验台重跑仍需在有 Docker 直连的机器上进行，这属于部署环境前提而非代码问题，已写进 backlog 与 Known gaps。门禁 32→33 条。",
       "at": "2026-10-03T20:50:27+08:00",
       "based_on": "0907436"
+    },
+    {
+      "cycle": 31,
+      "id": "no-unearned-confidence",
+      "title": "「一切正常」是全项目唯一不经过推导的诊断结论",
+      "shipped": "全量扫 schema 里带「乐观默认值」的字段（36 处），逐个查构造点是否漏传，找出真命中：异常分支的置信度早已改成按证据推导，但 `return Diagnosis(type='normal')` 漏了——吃到 schema 默认的 confidence=0.9。**全项目最常出现的诊断结论，恰恰是唯一不经过任何推导的那一个。**三个后果全部实测确认：① 样本量 1 与 10 给出同一个 0.9——「依据变多」不体现在结论上；② 读数贴阈值（45ms vs 50ms 门限）与读数极低（1ms）同样给 0.9；③ sim 折扣在正常分支**完全没生效**——模拟数据说「一切正常」和真实数据一样自信。一个样本都没有时也报 0.9。新增 _normal_confidence()：按「离阈值多远 × 样本量 × 数据是否真实」推导。实测：1 真实样本 1ms → 0.651；10 真实样本 1ms → 0.892；10 真实样本 45ms → 0.54；10 模拟样本 1ms → 0.535（折扣生效）；无样本 → 0.0。补 5 个测试（267→272）。新增门禁 no-unearned-confidence 锁死四种情形，已注入「改回吃默认值」的反例验证（报「样本量 1→10，置信度没变（0.9）」）。**扫出来不等于有问题**：另两处经核实是误报——store.py 的 TelemetrySnapshot(**v) 是解包且 model_dump 总会写全字段；VerificationReport 五个字段其实都算了，只是默认值没被用到。过程中门禁自己也写错过一次：diagnose([]) 会回退到 STORE.telemetry[-3:]，而门禁进程里有种子数据，「无样本」那条一开始没隔离 store，测出来是 congestion/0.305。已隔离。门禁 33→34 条全绿，去 AI 味门 0 命中。",
+      "at": "2026-10-03T21:38:07+08:00",
+      "based_on": "b5104c1"
     }
   ],
   "retro": [
@@ -1599,17 +1627,25 @@
       "root_cause": "W2-lab-ci 原本设想是「在 CI 里真起实验台重采一次并与 fixture 比对」。评估后没照做：CI 上跑 docker+FRR+netem 太重且易 flaky，而**更本质的风险不是 fixture 过期，是 fixture 被换成编的**。real-data-not-faked 只查结构特征（有没有 bytes from、断链态有没有 round-trip 行），那挡得住一眼假的，挡不住用心编的。",
       "fix": "改为让 fixture 自证：ping 抓包自报的 transmitted/received 与 round-trip min/avg/max 必须与文件里自己的报文行对得上，seq 连续，断链态无 round-trip 行；key_finding 引用的每个实测值必须在 states 或抓包里查得到。抓包文件本来就带着这组内部约束，只是没人核对过。已用两种编法验证：统计行照抄真数据只编 time、RTT 自洽只改包数，都被抓。第一版还因搜索范围写窄误报了一次（21.08 是健康态带宽，不在拥塞态抓包里），改为在整个真实数据集里查——门禁误报比不报更伤信任。",
       "at": "2026-10-03T20:50:00+08:00"
+    },
+    {
+      "cycle": 31,
+      "gate": "no-unearned-confidence",
+      "on_fail": "block",
+      "root_cause": "反复出现的缺陷形态是「默认值被当成观测值」：面板的 sla=98、状态端点的 healthy=true、自愈的 success 默认 True、置信度硬编码 .98/.92/.88——都是同一类。这轮做了一次全量扫（36 处带乐观默认值的 schema 字段），找到漏网的最后一个：`return Diagnosis(type='normal')`。**全项目最常出现的诊断结论，恰恰是唯一不经过任何推导的那一个。**三个后果都实测过：样本量 1 与 10 给同一个 0.9；读数贴阈值（45ms）与极低（1ms）给同一个 0.9；sim 折扣在正常分支完全没生效，模拟数据说「一切正常」和真实数据一样自信。",
+      "fix": "新增 _normal_confidence()：按「离阈值多远 × 样本量 × 数据是否真实」推导；无样本时返回 confidence=0.0 并在 evidence 里说明为什么判不了。实测：1 真实样本 1ms → 0.651；10 真实样本 1ms → 0.892；10 真实样本 45ms → 0.54；10 模拟样本 1ms → 0.535（折扣生效）。门禁 no-unearned-confidence 锁死四种情形。扫出来的另两处经核实是误报：store.py 的 TelemetrySnapshot(**v) 是解包，model_dump 总会写全字段；VerificationReport 五个字段其实都算了。——扫出来不等于有问题，核实过才记。",
+      "at": "2026-10-03T21:05:00+08:00"
     }
   ],
-  "gates_total": 33,
+  "gates_total": 34,
   "next_round": {
     "id": "B1-appjsx",
     "title": "App.jsx 1885 行解耦为 pages/components/hooks",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T20:50:20+08:00"
+    "planned_at": "2026-10-03T21:38:00+08:00"
   },
-  "based_on": "0907436",
+  "based_on": "b5104c1",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

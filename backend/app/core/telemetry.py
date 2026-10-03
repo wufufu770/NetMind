@@ -74,6 +74,29 @@ def _confidence(strength: float, sample_size: int, corroborated: bool = False,
     return round(min(0.99, base * (0.7 + 0.3 * size_factor) * boost * discount), 3)
 
 
+def _normal_confidence(latency_ms: float, loss: float, sample_size: int,
+                       simulated: bool) -> float:
+    """「一切正常」的置信度，同样要由可观测状态推导。
+
+    此前这条路径直接返回 `Diagnosis(type='normal')`，吃到 schema 默认的
+    confidence=0.9。后果有三层，都实测过：
+      · 样本量 1 和样本量 10 给出完全相同的 0.9——「依据变多」不体现在结论上
+      · 读数贴着阈值（45ms vs 50ms 门限）和读数极低（1ms）同样给 0.9
+      · `sim` 折扣在正常分支完全没生效——模拟数据得出的「一切正常」和真实
+        数据一样自信
+
+    这里的判据是「离阈值有多远」：离门限越远、样本越多、数据越真实，
+    越有底气说正常。三者缺一不可。
+    """
+    # 距离最紧的那条阈值越近，越说不出「一切正常」
+    latency_margin = max(0.0, LATENCY_DEGRADED_MS - float(latency_ms or 0.0))
+    loss_margin = max(0.0, LOSS_DEGRADED - float(loss or 0.0))
+    # 延迟是主判据，丢包兜底；取两者中更保守的那个
+    strength = min(1.0, latency_margin / LATENCY_DEGRADED_MS,
+                   loss_margin / LOSS_DEGRADED if LOSS_DEGRADED else 1.0)
+    return _confidence(strength, sample_size, simulated=simulated)
+
+
 class TelemetryService:
     def __init__(self):
         self.fault='normal'; self.tick=0
@@ -121,7 +144,12 @@ class TelemetryService:
         }
     def diagnose(self, snapshots=None, baseline_throughput_mbps: float | None = None) -> Diagnosis:
         snapshots=snapshots or STORE.telemetry[-3:]
-        if not snapshots: return Diagnosis(type='normal')
+        if not snapshots:
+            # 一个样本都没有，就没有依据说「正常」。此前这里返回
+            # Diagnosis(type='normal')，吃到 schema 默认的 confidence=0.9——
+            # 全项目最常见的诊断结论，恰恰是唯一不经过任何推导的那个。
+            return Diagnosis(type='normal', confidence=0.0,
+                             evidence={'reason': '没有任何遥测样本，无法判定'})
         n=len(snapshots)
         last=snapshots[-1]
         # 模拟数据得出的结论，置信度打折：凭硬编码常量下的判断不该有高置信度。
@@ -164,7 +192,10 @@ class TelemetryService:
             return Diagnosis(type='anomaly_traffic',
                              evidence={'throughput_drop_ratio':round(bw_drop,3)},
                              confidence=_confidence(bw_drop, n, simulated=sim))
-        return Diagnosis(type='normal')
+        return Diagnosis(type='normal',
+                         evidence={'latency_ms': latency, 'packet_loss': loss,
+                                   'samples': n},
+                         confidence=_normal_confidence(latency, loss, n, sim))
     def heal(self, diagnosis: Diagnosis, *, iface: str | None = None,
              backup: str | None = None, rate_mbps: int = 5,
              bridge: str | None = None) -> HealingReport:
