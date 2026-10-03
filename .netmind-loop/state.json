@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 33,
+  "cycle": 34,
   "phase": "plan",
-  "updated": "2026-10-03T22:24:05+08:00",
+  "updated": "2026-10-03T22:46:46+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,9 +22,9 @@
   "metrics": {
     "tests_collected": 272,
     "gates_total": 22,
-    "gates_passed": 35,
+    "gates_passed": 36,
     "gates_warned": 0,
-    "src_lines": 14389,
+    "src_lines": 14443,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -422,6 +422,18 @@
       "gates_passed": 35,
       "gates_warned": 0,
       "src_lines": 14389,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 34,
+      "tests_collected": 272,
+      "gates_total": 22,
+      "gates_passed": 36,
+      "gates_warned": 0,
+      "src_lines": 14443,
       "generic_names": 195,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -927,6 +939,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "frontend-production-serving",
+      "title": "面板改为生产托管 —— 开发服务器不是产品",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -1217,6 +1237,14 @@
       "shipped": "实测端到端跑 compose：两个镜像构建通过、两个容器都起得来、前后端日志正常，**但默认配置下面板完全不可用**——前端页面 200，而它要调的每个后端接口都 403。对照实验钉死了原因：容器内自访 `/api/system/status` → 200；宿主机经 `localhost:8000` 访问同一路径 → 403。同一台机器，两种结果。根因是后端判「本机」看对端是不是 127.0.0.1，而经 docker 端口映射进来的请求对端是网关 IP（172.x.x.1）——哪怕请求就发自你自己电脑的浏览器。**安全模型是对的（默认拒绝），错在可发现性**：403 报错只说「请设置 token」，使用者会以为自己已经设过了，于是反复重试。四处都点了名：README 快速开始（改成先 export token 再 up，并给浏览器localStorage 的写法）、docs/DEPLOY.md 新增第 0 节（放最前面，因为使用者先撞上 403 才读文档）、docker-compose.yml 变量上方的注释、以及 403 报错正文本身。端到端复验按新写法：未带 token → 401（正确拒绝）、带 token → 200、面板 → 200。新增门禁 container-deploy-needs-token 同时锁住四处（compose 注释、DEPLOY 开头、README、403 报错文案），已用「把提示删回原来那句」的反例验证。顺带记录：前端目前跑的是 Vite dev server（compose 注释自己承认了），生产部署需自行接静态托管 + 反代——这一点仍写在前端 Dockerfile 上，本轮未改，因为换成 nginx 静态托管要动构建产物与反代路径，属另一轮的范围。门禁 34→35 条全绿，后端 272、去 AI 味门 0 命中。",
       "at": "2026-10-03T22:24:05+08:00",
       "based_on": "9d9ccbd"
+    },
+    {
+      "cycle": 34,
+      "id": "frontend-production-serving",
+      "title": "面板改为生产托管 —— 开发服务器不是产品",
+      "shipped": "**前端容器改为生产托管**：多阶段构建（npm ci → npm run build → 只把 dist/ 拷进 nginx 镜像，74MB，源码与 node_modules 不进最终镜像），指纹资源 `/assets/*` 长缓存 `immutable`、`index.html` `no-store`，容器级 `/healthz` 由 nginx 自己答。此前是 `npm run dev`——HMR 端点暴露、源码不压缩、构建产物根本不进镜像。**API 基址改为启动时注入，默认同源**。此前 `VITE_*` 构建期烤死，镜像里带着 VITE_API_URL=http://localhost:8000——同一份镜像换访问地址就指错地方，且跨源发 Authorization 头会触发 CORS 预检（失败表现像网络问题，很难查）。现在 nginx 在启动时替换 index.html 的注入点，默认空串 = 同源，由 nginx 把 /api 与 /ws 反代到后端。**compose 补 healthcheck**，frontend 用 `condition: service_healthy` 等后端真的就绪，而不是「容器起来了」。**vite.config.js 配同样的代理**，开发与生产的请求形状一致。端到端实测：面板 200、同源 /api 不带 token 401、带 token 200、前端容器探活 ok、页面无 @vite/client（确认生产构建而非 dev server）、指纹资源 immutable 而 index.html no-store。新增 frontend/src/lib/api.js（resolveApiBase / apiUrl / wsUrl，9 个测试，前端 34→43），其中 https 页面必须走 wss——否则浏览器按混合内容拒掉。新增门禁 frontend-is-production-served 锁住八项。**过程中踩了两个坑，都写进门禁注释**：① nginx 把 ${...} 当成自己的变量，配置放 conf.d 会以 unknown variable 退出（实测容器直接 Exited(1)），必须放 templates/ 让 entrypoint 做 envsubst；② 门禁查 compose 时得先剥注释，否则「不再需要设 VITE_API_URL」这句说明会把自己判成违规。**还犯了一次操作错误**：做反例时用 git checkout 还原 docker-compose.yml，把我自己尚未提交的改动一起还原了——反例实验不该用会丢工作的命令还原。门禁 35→36 条全绿，后端 272、前端 43、去 AI 味门 0 命中。",
+      "at": "2026-10-03T22:46:46+08:00",
+      "based_on": "a55a930"
     }
   ],
   "retro": [
@@ -1715,17 +1743,25 @@
       "root_cause": "做 B1-appjsx 之前先验了一件更要紧的事：部署文档是对用户的承诺，而我从来没端到端跑过 `docker compose up`。跑完发现——**默认配置下面板全挂**：前端页面 200，但它要调的每个后端接口都 403。容器内自访 200、宿主机经 localhost:8000 访问 403，同一台机器两种结果。根因是后端判「本机」看对端是不是 127.0.0.1，而经端口映射进来的请求对端是网关 IP（172.x.x.1）——哪怕请求就发自自己电脑的浏览器。安全模型是对的（默认拒绝），错在可发现性：报错只说「请设置 token」，使用者会以为自己已经设过了，于是反复重试。",
       "fix": "四处都点了名：README 快速开始、docs/DEPLOY.md 新增第 0 节（放最前面，因为使用者先撞上 403 再读文档）、docker-compose.yml 变量上方的注释、以及 403 报错正文本身。compose 的快速开始也改成「先 export token 再 up」。端到端复验：按新写法起，未带 token → 401（正确拒绝）、带 token → 200、面板 → 200。门禁 container-deploy-needs-token 锁死四处，已用「把提示删回原来那句」的反例验证。",
       "at": "2026-10-03T22:20:00+08:00"
+    },
+    {
+      "cycle": 34,
+      "gate": "frontend-is-production-served",
+      "on_fail": "block",
+      "root_cause": "上一轮把「前端跑的是 Vite dev server」记成待办，说「属另一轮范围」。这轮做掉时发现它牵出一个更隐蔽的问题：`VITE_*` 是**构建期**注入的，所以镜像里烤死了 VITE_API_URL=http://localhost:8000——同一份镜像换访问地址就指错地方（「用别人的浏览器访问你这台机器」时那个 localhost 指的是访问者自己），而且跨源发 Authorization 头会触发 CORS 预检，预检失败的表现常常像网络问题，很难查。把开发服务器当产品发出去则谈不上「可直接商用」：HMR 端点暴露、源码不压缩、构建产物根本不进镜像。",
+      "fix": "多阶段构建 → nginx 托管 dist/（74MB，源码与 node_modules 不进最终镜像），/api 与 /ws 同源反代，API 基址改为**启动时**注入（nginx 替换 index.html 的注入点），默认空串 = 同源。补 healthcheck，frontend 用 service_healthy 等后端真的就绪。端到端实测：面板 200、同源 /api 不带 token 401、带 token 200、前端容器探活 ok、页面无 @vite/client（确认是生产构建）、指纹资源 immutable 而 index.html no-store。vite.config.js 配同样的代理，开发与生产请求形状一致。两个坑记在门禁里：① nginx 把 ${...} 当自己的变量，配置必须放 templates/ 让 entrypoint 做 envsubst，直接写 conf.d 会以 unknown variable 退出（实测踩过）；② 门禁查 compose 时必须先剥注释，否则「不再需要设 VITE_API_URL」这句说明会把自己判成违规。",
+      "at": "2026-10-03T22:50:00+08:00"
     }
   ],
-  "gates_total": 35,
+  "gates_total": 36,
   "next_round": {
     "id": "B1-appjsx",
     "title": "App.jsx 1885 行解耦为 pages/components/hooks",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T22:23:55+08:00"
+    "planned_at": "2026-10-03T22:46:39+08:00"
   },
-  "based_on": "9d9ccbd",
+  "based_on": "a55a930",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

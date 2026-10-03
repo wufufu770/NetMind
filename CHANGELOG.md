@@ -3,6 +3,20 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Changed
+- **面板改为生产托管**。此前 `frontend` 容器跑的是 `npm run dev`（Vite dev
+  server）——把开发服务器当产品发出去，谈不上「可直接商用」：HMR 端点暴露、
+  源码不压缩、构建产物根本不进镜像。现改为多阶段构建 → nginx 托管 `dist/`
+  （镜像 74MB，源码与 node_modules 不进最终镜像），带内容指纹的资源长缓存
+  `immutable`、`index.html` `no-store`，并配了容器级 `/healthz`
+- **API 基址改为启动时注入，默认同源**。`VITE_*` 是构建期变量，所以镜像里烤死了
+  `VITE_API_URL=http://localhost:8000`——同一份镜像换访问地址就指错地方，
+  而且跨源发 `Authorization` 头会触发 CORS 预检，预检失败的表现常常像网络问题。
+  现在 nginx 在启动时替换 `index.html` 里的注入点，默认空串 = 同源，
+  由 nginx 把 `/api` 与 `/ws` 反代到后端
+- compose 补 healthcheck，frontend 用 `condition: service_healthy` 等后端真的就绪
+- `vite.config.js` 配了同样的 `/api`、`/ws` 代理，开发与生产的请求形状一致
+
 ### Fixed
 - **`docker compose up` 之后面板全挂，每个接口 403**。实测：前端页面 200，但
   `/api/system/status`、`/api/dashboard`、`/api/telemetry/latest` 在宿主机经

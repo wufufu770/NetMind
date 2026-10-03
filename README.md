@@ -85,6 +85,7 @@ localStorage.setItem('netmind-admin-token', '<上面那个值>');
 ```
 
 - Dashboard: http://localhost:5173 · API docs: http://localhost:8000/docs
+- 面板由 nginx 托管**生产构建**并把 `/api`、`/ws` 同源反代到后端，不是开发服务器；API 基址在启动时注入，换部署地址不用重新构建镜像
 
 ### Local development
 

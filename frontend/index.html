@@ -1,1 +1,4 @@
-<div id="root"></div><script type="module" src="/src/App.jsx"></script>
+<div id="root"></div>
+<!-- API 基址：生产由 nginx 启动时替换（见 nginx.conf）。留空 = 同源，由 nginx 反代。 -->
+<script>window.__NETMIND_API__ = "<!--NETMIND_API_BASE-->";</script>
+<script type="module" src="/src/App.jsx"></script>

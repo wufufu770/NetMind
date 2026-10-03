@@ -19,12 +19,25 @@ services:
       - NETMIND_ADMIN_TOKEN=${NETMIND_ADMIN_TOKEN:-}
     volumes:
       - netmind-data:/app/data
-  # 面板。Vite dev server，不是生产静态服务——生产部署请自行接静态托管 + 反代。
+    healthcheck:
+      # 用 /healthz 而不是 /api/*：前者是唯一的免认证口，探针不配凭据也能用
+      test: ['CMD', 'python', '-c',
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+  # 面板：nginx 托管**生产构建**，并把 /api 与 /ws 同源反代到 backend。
+  # 因此容器里不再需要设 VITE_API_URL——那是构建期变量，容器里设对已构建页面无效。
+  # API 基址在启动时注入，默认空串 = 同源。想让面板直连别处：
+  # 传 NETMIND_API_BASE=https://... 即可。
   frontend:
     build: ./frontend
-    ports: ['5173:5173']
+    ports: ['5173:80']
     environment:
-      - VITE_API_URL=http://localhost:8000
-    depends_on: [backend]
+      - NETMIND_API_BASE=${NETMIND_API_BASE:-}
+    depends_on:
+      backend:
+        condition: service_healthy
 volumes:
   netmind-data:

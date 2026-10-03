@@ -209,7 +209,27 @@ HealingAgent 这一步记为 `waiting`（等前置条件），**不会**记成�
 原有整形但处置前没记参数，造不出等价的逆命令。没改善时会如实报「无法自动回滚」，
 需人工确认。
 
-## 9. 出了故障先看哪儿
+## 9. 面板是怎么托管的
+
+`frontend` 容器是 **nginx 托管生产构建**，不是 Vite dev server：
+
+- 多阶段构建：`npm ci` → `npm run build` → 只把 `dist/` 拷进 nginx 镜像（74MB，
+  源码与 node_modules 都不进最终镜像）
+- nginx 同时把 `/api` 与 `/ws` **同源反代**到 backend。前端因此不需要跨源发
+  `Authorization` 头，也就没有 CORS 预检
+- API 基址在**启动时**注入（`index.html` 里的注入点由 nginx 替换），默认空串 =
+  同源。想让面板直连别处：`NETMIND_API_BASE=https://... docker compose up -d`
+- 指纹资源 `/assets/*` 长缓存（`immutable, max-age=1y`），`index.html` `no-store`——
+  改了构建产物不会因为缓存而发不出新版
+- `/healthz` 由 nginx 自己答（前端容器活着就 200），不打到后端
+
+`backend` 配了 healthcheck，frontend 用 `condition: service_healthy` 等它
+真的就绪，而不是「容器起来了」。
+
+开发时用 `npm run dev`：`vite.config.js` 里配了同样的 `/api`、`/ws` 代理，
+所以开发与生产的请求形状一致（都是同源相对路径）。
+
+## 10. 出了故障先看哪儿
 
 | 症状 | 先查 |
 |---|---|

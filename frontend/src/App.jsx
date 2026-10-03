@@ -42,10 +42,13 @@ import {
 } from 'lucide-react';
 import { compactLabel, displayToolName, executionLabel, localizeJsonText } from './lib/format.js';
 import { authHeaders, describeAuthFailure } from './lib/auth.js';
+import { apiUrl as apiPath, resolveApiBase, wsUrl as wsPath } from './lib/api.js';
 import { confidenceText, healthRing, healthScore, isReadonly, metricTone, metricValue, summaryCell, writeAction } from './lib/display.js';
 import './style.css';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// 同源优先：没有 CORS、没有预检、凭据不跨域。构建期变量只作为开发时的覆盖手段，
+// 不再默认指向 localhost——那在「用别人的浏览器访问你这台机器」时是错的。
+const API = resolveApiBase(typeof window === 'undefined' ? null : window, import.meta.env);
 
 const pageDefs = [
   ['dashboard', '监控', '运行态势', LayoutDashboard, true],
@@ -185,7 +188,7 @@ async function request(path, options = {}) {
     init.body = JSON.stringify(init.body);
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   }
-  const res = await fetch(API + path, init);
+  const res = await fetch(apiPath(path, API), init);
   const contentType = res.headers.get('content-type') || '';
   const payload = contentType.includes('application/json') ? await res.json() : await res.text();
   if (!res.ok) {
@@ -1208,7 +1211,7 @@ function Telemetry({ setToast, authMode }) {
 
 
   useEffect(() => {
-    const wsUrl = API.replace(/^http/, 'ws') + '/ws/events';
+    const wsUrl = wsPath('/ws/events', API);
     const ws = new WebSocket(wsUrl);
     ws.onopen = () => setWsStatus('connected');
     ws.onmessage = (event) => {

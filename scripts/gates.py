@@ -408,6 +408,57 @@ assert re.search(r'`(scripts|backend|docs|tests)/', body), \
 """,
     ),
     Gate(
+        id='frontend-is-production-served',
+        desc='面板由生产构建 + nginx 同源托管，不是 Vite dev server',
+        on_fail='block',
+        check=r"""
+# 此前 compose 起的前端是 `npm run dev`（Vite dev server）。把开发服务器当产品发出去
+# 谈不上「可直接商用」：HMR 端点暴露、源码不压缩、构建产物不进镜像。
+#
+# 顺带修掉一个更隐蔽的问题：`VITE_*` 是**构建期**注入的，所以镜像里烤死了
+# `VITE_API_URL=http://localhost:8000`。于是同一份镜像换个访问地址就指错地方，
+# 而且跨源发 Authorization 头会触发 CORS 预检，预检失败的表现常常像网络问题。
+#
+# 现在：nginx 托管生产构建，并把 /api 与 /ws 同源反代到后端；API 基址在**启动时**
+# 注入（index.html 里的注入点由 nginx 替换），默认空串 = 同源。
+from pathlib import Path as P
+import json as _json
+import re as _re
+
+df = (ROOT / 'frontend' / 'Dockerfile').read_text(encoding='utf-8')
+nginx = (ROOT / 'frontend' / 'nginx.conf').read_text(encoding='utf-8')
+pkg = _json.loads((ROOT / 'frontend' / 'package.json').read_text(encoding='utf-8'))
+compose = (ROOT / 'docker-compose.yml').read_text(encoding='utf-8')
+index = (ROOT / 'frontend' / 'index.html').read_text(encoding='utf-8')
+
+assert 'npm run dev' not in df, \
+    '前端镜像仍在跑 Vite dev server——开发服务器不是产品'
+assert 'npm run build' in df, '前端镜像没有先做生产构建'
+assert 'AS build' in df and 'nginx' in df, \
+    '前端镜像不是「多阶段构建 → nginx 托管静态产物」的结构'
+assert '/etc/nginx/templates/' in df, (
+    'nginx 配置必须放 templates/：nginx 把 ${...} 当成自己的变量，'
+    '直接写进 conf.d 会以 unknown variable 退出（实测踩过）')
+assert 'sub_filter' in nginx and 'NETMIND_API_BASE' in nginx, \
+    'nginx 未在启动时注入 API 基址——同源反代的前提没了'
+assert 'location /api/' in nginx and 'proxy_pass http://backend' in nginx, \
+    'nginx 没有把 /api 反代到后端，同源方案就不成立'
+assert '/ws' in nginx and 'Upgrade' in nginx, 'WebSocket 未反代，面板收不到事件'
+assert '__NETMIND_API__' in index, 'index.html 缺少运行时注入点'
+# 只看真正的 environment 行：注释里写「不再需要设 VITE_API_URL」是对的话，
+# 把它也算成命中，那门禁就只能逼人把说明删掉
+compose_env = '\n'.join(l for l in compose.splitlines() if not l.lstrip().startswith('#'))
+assert 'VITE_API_URL' not in compose_env, (
+    'compose 里还在设 VITE_API_URL——那是构建期变量，容器里设对已构建页面无效')
+assert 'NETMIND_API_BASE' in compose_env, \
+    'compose 没有把 API 基址作为运行时变量传进前端容器'
+assert 'service_healthy' in compose, \
+    'frontend 没等 backend 健康就启动，首个请求可能打空'
+assert 'healthcheck' in compose, 'compose 没有 healthcheck，依赖健康无从判断'
+assert pkg.get('scripts', {}).get('test'), '前端失去 test 脚本'
+""",
+    ),
+    Gate(
         id='container-deploy-needs-token',
         desc='docker compose 部署必须设 token —— 端口映射后对端不是 loopback',
         on_fail='block',
