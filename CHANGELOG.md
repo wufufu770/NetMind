@@ -4,6 +4,14 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- 门禁 `fixtures-are-self-consistent`：真实抓包必须**自证**。ping 文件自报的
+  transmitted/received 与 round-trip min/avg/max 要与它自己的报文行对得上，
+  seq 连续，断链态不得有 round-trip 行；`key_finding` 引用的每个实测值要在真实
+  数据集里查得到。已用两种编法验证有牙齿：统计行照抄真数据只把回包 time 随手编
+  （被抓出 min/max/avg 三项全不符）、RTT 自洽只把收包数从 10 改成 12（被抓出
+  自报 12 个回包但只有 10 行）——两种编法看起来都很真，两种都被抓住
+
+### Added
 - 前端展示层的取值决策抽到 `frontend/src/lib/display.js`（`frontend/src/lib/auth.js`
   同轮新增）：指标取值、健康分、健康环、验证摘要、置信度——都是「用户被告知什么」
   的决策点，此前散在 `App.jsx` 里一行测试都没有。补 20 个用例，前端 12→30

@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 29,
+  "cycle": 30,
   "phase": "plan",
-  "updated": "2026-10-03T20:36:50+08:00",
+  "updated": "2026-10-03T20:50:27+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,9 +22,9 @@
   "metrics": {
     "tests_collected": 267,
     "gates_total": 22,
-    "gates_passed": 32,
+    "gates_passed": 33,
     "gates_warned": 0,
-    "src_lines": 14094,
+    "src_lines": 14171,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -378,6 +378,18 @@
       "dead_modules": 0,
       "slop_hits": 0,
       "license_present": true
+    },
+    {
+      "cycle": 30,
+      "tests_collected": 267,
+      "gates_total": 22,
+      "gates_passed": 33,
+      "gates_warned": 0,
+      "src_lines": 14171,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
     }
   ],
   "gates": [
@@ -507,8 +519,8 @@
       "title": "实验台接入 CI 扩展检查（docker 可用时可实跑 lab.sh measure 并比对基线）",
       "priority": "P1",
       "depends_on": [],
-      "status": "pending",
-      "note": "当前 real-data-not-faked 门禁只校验 fixture 特征。CI runner 有 docker，可进一步在 CI 里真起实验台重采一次并与 fixture 比对——防 fixture 老化"
+      "status": "done",
+      "note": "轮30 以更省的形式交付：不在 CI 里起完整实验台（docker+FRR+netem 太重、易 flaky），而是让 fixture **自证**。新增门禁 fixtures-are-self-consistent：ping 抓包的自报统计（transmitted/received、round-trip min/avg/max）必须与文件里自己的报文行对得上，seq 必须连续，断链态不得有 round-trip 行；throughput-real.json 的 key_finding 引用的每个实测值必须在 states 或抓包里查得到。已用两种编法验证有牙齿：①统计行照抄真数据、只把回包 time 随手编（被抓：round-trip 与实际 min/max/avg 全部对不上）；②RTT 行自洽、只把收包数改成 12（被抓）。**真正的实验台重跑仍需在有 Docker 直连的机器上做**，这属于 lab-ci 之外的部署环境前提，已在 Known gaps 记明。"
     },
     {
       "id": "W0-copy-lint",
@@ -1113,6 +1125,14 @@
       "shipped": "**W2-multivendor 标 blocked**（附 blocked_on）：ceos / vrnetlab/vyos / junosce/junos / dhartnepal/netlabs:veos / ghcr.io/netasq/veos 五路源逐一实测，全部被 DaoCloud 公共镜像代理的白名单拒绝（不是网络不可达——registry 本身可达）。解阻条件写进状态文件。**/api/system/status 去编造**：healthy / driver / model_online 三个字段此前从未被任何代码赋值，全吃 schema 默认值，于是这个探活与运维真正会看的接口恒返回 healthy=true、driver=simulation、model_online=true——配了 SSH 驱动、模型离线、压根没采到数据都照报「健康」。现四个字段各自接上可观测状态，并新增 telemetry_source（数据是实测还是降级）与 auth_mode。**完成 C7-readonly-ui**：前端读 auth_mode 识别只读身份，顶部给出明确提示，触发自愈这类写操作先被拦下并说明原因，不再让人「点了才知道不行」。身份未知时**不猜测**——宁可让服务端返 403，也不禁用按钮，否则可能把本来能用的管理员也挡在门外。新增 frontend/src/lib/display.js 的 isReadonly/writeAction（4 个测试，前端 30→34）。新增门禁 system-status-is-measured，对两种反例验过：model_online 退回默认值（报「该字段仍是默认值」）、healthy 恒 True（报「没有任何遥测却报 healthy=true」）。文档三处同步：README 诚实表新增 /api/system/status 一行并改写 Credential tiers、DEPLOY.md 把「前端不识别角色」从待办改成已实现、CHANGELOG 记两条。门禁 31→32 条全绿，后端 267、前端 34、构建通过。",
       "at": "2026-10-03T20:36:50+08:00",
       "based_on": "7253fb2"
+    },
+    {
+      "cycle": 30,
+      "id": "W2-lab-ci",
+      "title": "让真实抓包 fixture 自证 —— 防「被换成编的」",
+      "shipped": "新增门禁 fixtures-are-self-consistent：ping 抓包的自报统计（transmitted/received、round-trip min/avg/max）必须与文件里**自己的报文行**对得上，seq 必须连续，断链态不得出现 round-trip 行；throughput-real.json 的 key_finding 引用的每个实测值，必须在 states 或任一抓包里查得到——悬空的数字是「结论看起来有据、实际查无此数」。这组内部约束本来就写在抓包文件里，只是从没人核对过。已用两种编法验证它有牙齿：① 统计行照抄真数据、只把回包的 time 随手编 → 抓出 round-trip 与实际 min/max/avg 三项全不符；② RTT 行做得自洽、只把收包数从 10 改成 12 → 抓出自报 12 个回包但文件里只有 10 行。两种编法都能「看起来很真」，两种都被抓住——这正是这组约束的价值。过程中自己写错过一次：第一版只在上拥塞态抓包里查 key_finding 引用的数字，把 21.08（健康态带宽）误报成悬空。门禁误报比不报更伤信任，已改为在整个真实数据集里查。fixture 已完全还原（git diff 为空）。**如实记录未做的部分**：真正的实验台重跑仍需在有 Docker 直连的机器上进行，这属于部署环境前提而非代码问题，已写进 backlog 与 Known gaps。门禁 32→33 条。",
+      "at": "2026-10-03T20:50:27+08:00",
+      "based_on": "0907436"
     }
   ],
   "retro": [
@@ -1571,17 +1591,25 @@
       "root_cause": "找 `C7-readonly-ui` 需要 auth_mode 时，发现 /api/system/status 里 healthy / driver / model_online **三个字段从来没有被任何代码赋值**——全吃 schema 默认值，于是这个「探活与运维真正会看的接口」恒返回 healthy=true、driver=simulation、model_online=true。配了 SSH 驱动、模型离线、压根没采到数据，它都照报「健康」。和轮 23 的面板数字是同一类缺陷：默认值被当成了观测值。**默认值看起来和真值一模一样，这正是它危险的地方。**",
       "fix": "四个字段各自接上可观测状态：driver 取实际配置、model_online 走真健康检查、healthy 取决于遥测有无（无数据不报健康）、新增 telemetry_source 与 auth_mode。门禁 system-status-is-measured 对「model_online 退回默认值」与「healthy 恒 True」两种反例都验过，报错各指其真。同时完成 C7-readonly-ui：前端按 auth_mode 识别只读身份。",
       "at": "2026-10-03T19:45:00+08:00"
+    },
+    {
+      "cycle": 30,
+      "gate": "fixtures-are-self-consistent",
+      "on_fail": "block",
+      "root_cause": "W2-lab-ci 原本设想是「在 CI 里真起实验台重采一次并与 fixture 比对」。评估后没照做：CI 上跑 docker+FRR+netem 太重且易 flaky，而**更本质的风险不是 fixture 过期，是 fixture 被换成编的**。real-data-not-faked 只查结构特征（有没有 bytes from、断链态有没有 round-trip 行），那挡得住一眼假的，挡不住用心编的。",
+      "fix": "改为让 fixture 自证：ping 抓包自报的 transmitted/received 与 round-trip min/avg/max 必须与文件里自己的报文行对得上，seq 连续，断链态无 round-trip 行；key_finding 引用的每个实测值必须在 states 或抓包里查得到。抓包文件本来就带着这组内部约束，只是没人核对过。已用两种编法验证：统计行照抄真数据只编 time、RTT 自洽只改包数，都被抓。第一版还因搜索范围写窄误报了一次（21.08 是健康态带宽，不在拥塞态抓包里），改为在整个真实数据集里查——门禁误报比不报更伤信任。",
+      "at": "2026-10-03T20:50:00+08:00"
     }
   ],
-  "gates_total": 32,
+  "gates_total": 33,
   "next_round": {
-    "id": "W2-lab-ci",
-    "title": "实验台接入 CI 扩展检查（docker 可用时可实跑 lab.sh measure 并比对基线）",
-    "why": "当前 real-data-not-faked 门禁只校验 fixture 特征。CI runner 有 docker，可进一步在 CI 里真起实验台重采一次并与 fixture 比对——防 fixture 老化",
+    "id": "B1-appjsx",
+    "title": "App.jsx 1885 行解耦为 pages/components/hooks",
+    "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T20:36:43+08:00"
+    "planned_at": "2026-10-03T20:50:20+08:00"
   },
-  "based_on": "7253fb2",
+  "based_on": "0907436",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

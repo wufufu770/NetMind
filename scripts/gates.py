@@ -108,6 +108,83 @@ finally:
 """,
     ),
     Gate(
+        id='fixtures-are-self-consistent',
+        desc='真实抓包 fixture 内部自洽：自报统计必须与自己的报文行对得上',
+        on_fail='block',
+        check=r"""
+# `real-data-not-faked` 只查结构特征（有没有 'bytes from'、断链态有没有
+# round-trip 行）。那挡得住一眼假的，挡不住**用心编的**——手写一份
+# 「10 packets transmitted, 10 packets received, 0% packet loss」谁都会，
+# 但要同时让 10 行报文的 seq 连续、time 值算出来的 min/avg/max 与自报那行
+# 完全吻合，就不是随手能编的了。
+#
+# 抓包文件自带的这组内部约束是免费的：它本来就在文件里，只是没人核对过。
+import json
+import re
+
+lab = ROOT / 'tests' / 'fixtures' / 'lab'
+STAT = re.compile(r'(\d+) packets transmitted, (\d+) packets received')
+REPLY = re.compile(r'bytes from [^\s:]+: seq=(\d+).*time=([\d.]+)\s*ms')
+RTT = re.compile(r'round-trip min/avg/max = ([\d.]+)/([\d.]+)/([\d.]+) ms')
+
+problems = []
+checked = 0
+for p in sorted(lab.glob('ping-*.txt')):
+    text = p.read_text(encoding='utf-8')
+    m = STAT.search(text)
+    if not m:
+        problems.append(f'{p.name}: 没有 ping statistics 行')
+        continue
+    sent, recv = int(m.group(1)), int(m.group(2))
+    replies = REPLY.findall(text)
+    if len(replies) != recv:
+        problems.append(
+            f'{p.name}: 自报 {recv} 个回包，文件里实际 {len(replies)} 行回包——对不上')
+    if len(replies) != sent and recv == sent:
+        problems.append(f'{p.name}: 自报 {sent}/{recv} 全通，但只有 {len(replies)} 行')
+    seqs = [int(s) for s, _ in replies]
+    if seqs and seqs != list(range(len(seqs))):
+        problems.append(f'{p.name}: 回包 seq 不连续 {seqs[:5]}…——真实 ping 不会这样')
+    r = RTT.search(text)
+    if replies:
+        if not r:
+            problems.append(f'{p.name}: 有回包却没有 round-trip 行')
+        else:
+            lo, avg, hi = (float(x) for x in r.groups())
+            times = sorted(float(t) for _, t in replies)
+            if abs(times[0] - lo) > 0.002 or abs(times[-1] - hi) > 0.002:
+                problems.append(
+                    f'{p.name}: round-trip 自报 min/max={lo}/{hi}，'
+                    f'实际 {times[0]}/{times[-1]}——编的')
+            real_avg = sum(times) / len(times)
+            if abs(real_avg - avg) > 0.002:
+                problems.append(
+                    f'{p.name}: round-trip 自报 avg={avg}，按报文行算是 {real_avg:.3f}——编的')
+    elif r:
+        problems.append(f'{p.name}: 一个回包都没有却给出 round-trip 统计')
+    checked += 1
+
+assert checked >= 3, f'只检查到 {checked} 份 ping fixture，扫描范围不对'
+assert not problems, '抓包 fixture 内部不自洽:\n  - ' + '\n  - '.join(problems)
+
+# 跨 fixture 引用要能对上：key_finding 里引用的每个实测值，
+# 都必须真的出现在本组的真实数据里（任一 state 的字段，或任一抓包的 RTT 行）。
+# 悬空的数字是「结论看起来有据、实际查无此数」——最难发现的一种不实。
+tp = lab / 'throughput-real.json'
+if tp.exists():
+    data = json.loads(tp.read_text(encoding='utf-8'))
+    haystack = [str(data)]
+    for p in sorted(lab.glob('*.txt')):
+        haystack.append(p.read_text(encoding='utf-8'))
+    blob = '\n'.join(haystack)
+    cited = set(re.findall(r'(?<![\w.])\d{1,3}\.\d{1,3}(?![\w])', str(data.get('key_finding', ''))))
+    untraceable = sorted(n for n in cited if n not in blob)
+    assert not untraceable, (
+        f'throughput-real.json 的 key_finding 引用了 {untraceable}，'
+        f'但这些值在 states 与任何抓包里都查不到——结论悬空')
+""",
+    ),
+    Gate(
         id='system-status-is-measured',
         desc='运行状态端点的字段必须由可观测状态算出，不得吃 schema 默认值',
         on_fail='block',
