@@ -106,18 +106,21 @@ def test_unverified_never_reports_success():
 # ---------- 模拟路径的 heal() 也不再假成功 ----------
 
 def test_simulated_heal_admits_it_did_not_verify():
-    """不给处置参数时，自愈不得编造动作。
+    """没配处置目标时，自愈不得编造动作。
 
-    此前 heal() 的「动作」是字典里的中文描述串，不产生任何真实副作用；
-    现在它要求参数（拥塞要知道清哪个 iface、断链要知道切到哪条备用路由），
-    缺参数就如实说缺什么，并且 success=False。
+    此前 heal() 的「动作」是字典里的中文描述串，不产生任何真实副作用。
+    现在缺处置目标（NETMIND_HEAL_IFACE 等）就如实说未启用、缺什么，
+    并且 success=False。措辞从「需要参数」改成「未配置」是刻意的：
+    缺的不是某次调用的参数，而是系统级的前置条件——说成前者会让人
+    以为补个调用参数就能自愈。
     """
     TELEMETRY.fault = 'congestion'
     d = TELEMETRY.diagnose([_snap(68, 0.018, 'simulated')])
     r = TELEMETRY.heal(d)
     assert r.success is False, '没真正处置不得报成功'
     assert '未产生任何设备侧变更' in r.summary
-    assert '需要参数' in r.summary or '无需处置' in r.summary
+    assert '未配置' in r.summary or '未启用' in r.summary
+    assert r.improvement.get('target_configured') is False
 
 
 def test_normal_diagnosis_is_not_reported_as_failure():

@@ -89,10 +89,31 @@ class WorkflowOrchestrator:
         ex.steps.append(AgentStep(agent='DiagnosisAgent', status=Status.success, output=diag.model_dump(), duration_ms=int((time.time()-t)*1000)))
         if diag.type != 'normal':
             t=time.time(); h=TELEMETRY.heal(diag); ex.healing=h
-            ex.steps.append(AgentStep(agent='HealingAgent', status=Status.success, output=h.model_dump(), duration_ms=int((time.time()-t)*1000)))
+            # 步骤状态必须跟着处置结果走。此前无论 heal() 返回什么（哪怕是
+            # 「未配置处置目标，什么都没做」）这一步都记 success——
+            # 审计里看过去就是「自愈成功了」。
+            ex.steps.append(AgentStep(agent='HealingAgent',
+                                      status=_healing_step_status(h),
+                                      output=h.model_dump(),
+                                      duration_ms=int((time.time()-t)*1000)))
         else:
             ex.steps.append(AgentStep(agent='HealingAgent', status=Status.waiting, output={'reason':'no alert'}))
         ex.status=Status.success if not ex.verification or ex.verification.passed else Status.warning
         return ex
+
+
+def _healing_step_status(h) -> Status:
+    """自愈步骤的状态。区分「真做成了」与「想做但没做成」。
+
+    未配置处置目标而未执行（disabled）与次数触顶（capped）都归 waiting——
+    它们不是失败，是等一个前置条件；写成 failed 会把「没配」误报成
+    「系统出错」。真正下发后没改善/设备拒执行才算 failed。
+    """
+    if h.success:
+        return Status.success
+    imp = h.improvement or {}
+    if imp.get('disabled') or imp.get('capped'):
+        return Status.waiting
+    return Status.failed
 
 ORCHESTRATOR=WorkflowOrchestrator()

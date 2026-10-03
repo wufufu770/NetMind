@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 23,
+  "cycle": 24,
   "phase": "plan",
-  "updated": "2026-10-03T13:44:48+08:00",
+  "updated": "2026-10-03T14:02:43+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,12 +20,12 @@
     }
   },
   "metrics": {
-    "tests_collected": 240,
+    "tests_collected": 250,
     "gates_total": 22,
-    "gates_passed": 25,
+    "gates_passed": 26,
     "gates_warned": 0,
-    "src_lines": 13080,
-    "generic_names": 193,
+    "src_lines": 13499,
+    "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
     "license_present": true
@@ -306,6 +306,18 @@
       "dead_modules": 0,
       "slop_hits": 0,
       "license_present": true
+    },
+    {
+      "cycle": 24,
+      "tests_collected": 250,
+      "gates_total": 22,
+      "gates_passed": 26,
+      "gates_warned": 0,
+      "src_lines": 13499,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
     }
   ],
   "gates": [
@@ -404,7 +416,7 @@
         "C1"
       ],
       "status": "pending",
-      "note": "部分完成：速率限制已交付（core/ratelimit.py，按来源分读写两组令牌桶，NETMIND_RATE_LIMIT=off 可关；门禁覆盖）。**RBAC 三档角色未做**——当前所有持 token 者权限相同，仍是「一个 token 全通」，商用前应补。"
+      "note": "部分完成：速率限制已交付（core/ratelimit.py，来源分读写两组令牌桶，NETMIND_RATE_LIMIT=off 可关）；**RBAC 三档角色仍未做**——当前持 token 者权限相同。对自托管单实例场景一个管理员 token 是可接受的，但 SECURITY.md 须如实写明这一限制（见 W0-security-sla）。"
     },
     {
       "id": "C8-self-observability",
@@ -545,7 +557,8 @@
       "title": "HealingAgent 重试硬上限（对齐业界 5-10 次实践）",
       "priority": "P1",
       "depends_on": [],
-      "status": "pending"
+      "status": "done",
+      "note": "轮24 交付：新增 core/heal_guard.py。连续失败按 (诊断类型, 接口) 独立记账并落盘，默认上限 3（NETMIND_HEAL_MAX_ATTEMPTS），触顶停止自动动作转人工；成功清零、冷却期（60s）后旧账作废、干跑不消耗预算（设备没被动过）。计数持久化是必需的——只在内存里的话重启一次就绕过去了。门禁 healing-is-guarded 已用「把步骤状态还原成恒 success」注入反例验证。"
     },
     {
       "id": "W2-multivendor",
@@ -940,6 +953,14 @@
       "shipped": "新增 core/dashboard.py 纯函数（规则 3），面板全部指标由真实 store 状态推出：延迟/丢包读最新遥测，活跃意图数按执行状态实数，风险条目只在遥测支持时才出现且每条带 evidence。SLA 达成率**不再有数字**——它需要事先约定的 SLO 目标，项目里没有，就返回 null 并写明原因；前端 HealthRing 随之显示 --（此前它在 sla 为空时用丢包率反推 96/82，凭一个阈值编出最显眼的数字）。顺带清掉前端三处编造常量：下发/回滚/回滚计划结果里的 sla_feasible:true 与 sla_confidence:1 ——部署结果里本就没有 SLA 依据，VerificationSummary 于是会把「未知」显示成「可行 100%」。修 /api/system/ai-recovery-review：原实现永远返回「复核完成、无冲突」却什么都没比较，现真跑一遍规则引擎再比对，判不了的记入 undecidable 并强制 indeterminate/partial 结论。修一个实测出来整个坏掉的特性：/api/telemetry/predict-sla 原为 GET 无请求体、门槛写死 50ms，而前端一直 POST 并传了完整 sla 目标——实测 POST 直接 405，GET 返回 achievable 而前端读 feasible，toast 恒走「不可行」分支。改为 POST 接收调用方给的目标，返回 target_used 与 breaches；不达标时指出超了哪几项；不给目标则返回实测值与 feasible:null，不替用户决定什么叫达标。修 /ws/events 连接泄漏：只捕 WebSocketDisconnect，异常路径下连接永远留在 WS 列表里，而 /api/system/status 正是拿 len(WS) 当在线客户端数报的；改用 finally。新增门禁 dashboard-no-fabricated-numbers，已分别用「sla 写死 98」与「门槛写死 50ms」两次注入反例验证它有牙齿。测试 224→240，前端 12 通过、构建通过，门禁 24→25 全绿。诚实表新增三行（Dashboard metrics / SLA feasibility check / AI recovery review），此前这三项连一行声明都没有。",
       "at": "2026-10-03T13:44:48+08:00",
       "based_on": "24299ab"
+    },
+    {
+      "cycle": 24,
+      "id": "W2-retry-cap",
+      "title": "自愈两道护栏：显式目标 + 次数上限 —— 并修好一个永远动不了的 HealingAgent",
+      "shipped": "新增 core/heal_guard.py，回答自动处置必须先答的两个问题——动哪块、动几次。(1) 动哪块：新增 NETMIND_HEAL_IFACE（link_down 另需 NETMIND_HEAL_BACKUP_ROUTE），不配则自动处置处于关闭状态并如实说明缺哪一项。**不猜接口**——处置命令形如 tc qdisc del dev {iface} root，猜错就等于对错误的口下手，在多接口真机上那可能正是管理口；项目对设备采集一直坚持「不知道就如实拒绝」，处置更不该猜。(2) 动几次：连续失败按 (诊断类型, 接口) 独立记账，默认上限 3，触顶停止自动动作转人工；成功清零、冷却期后旧账作废、干跑不消耗预算（设备没被动过不算「试过」）。计数**落盘**是必需的——只在内存里的话重启一次就把上限绕过去了。修 workflow.py 的假成功：HealingAgent 步骤状态改为跟着处置结果走，区分「真做成」(success) /「等前置条件」(waiting：未配置目标、次数触顶) /「真失败」(failed)。实测：未配接口时闭环如实报未启用且步骤记 waiting；配了接口后闭环真能生成并下发 tc qdisc del dev eth0 root——上一轮的自愈第一次从主路径真正跑通。真机复验仍通过（150.425→0.127ms，设备侧 qdisc 读回 noqueue）。过程中发现并修掉一处自己的 bug：重试记账写在了 HealingReport 构造之后，pydantic 构造时已拷走 improvement 字典，报告里看不到计数——账记了但读者看不到。另更新一条既有测试的措辞断言（「需要参数」→「未配置」：缺的不是某次调用的参数，而是系统级前置条件，说成前者会让人以为补个参数就能自愈），并给另外三条断言补上「未产生任何设备侧变更」——报告要能确认设备确实没被动过。DEPLOY.md 新增第 8 节「开启自动处置（默认关闭）」，含三个变量、上限语义、干跑不消耗预算的原因，以及 congestion 无自动回滚的说明。新增门禁 healing-is-guarded，已注入反例验证它有牙齿。测试 240→250，门禁 25→26 条全绿。",
+      "at": "2026-10-03T14:02:30+08:00",
+      "based_on": "3371c6a"
     }
   ],
   "retro": [
@@ -1334,17 +1355,33 @@
       "root_cause": "backlog 存在非法 status: ['cancelled']",
       "fix": "待定——本轮不记根因的门禁会原样复现",
       "at": "2026-10-03T13:42:26+08:00"
+    },
+    {
+      "cycle": 24,
+      "gate": "healing-is-guarded",
+      "on_fail": "block",
+      "root_cause": "上一轮把 heal() 做成真动作后，没回头看主工作流怎么调它。workflow.py 调 heal(diag) 不传 iface，而 build() 缺 iface 就抛 RemediationUnavailable——于是每次都走「无需处置」，上一轮的自愈从主路径根本走不到。更糟的是那一行无论返回什么都记 Status.success：审计里看过去就是「自愈成功了」。教训：做一条链路上的能力时，要问「谁在调它、调了没有」，而不只是「它自己能用吗」。",
+      "fix": "workflow 步骤状态改为跟着处置结果走（success/waiting/failed 三分）；heal() 无 iface 时按系统级配置兜底，未配置则如实说未启用并点名缺哪项。门禁同时校验两侧：未配置时步骤不得记 success，且配了之后必须真能生成命令（防止护栏反过来把功能锁死）。",
+      "at": "2026-10-03T14:15:00+08:00"
+    },
+    {
+      "cycle": 24,
+      "gate": "heal-attempt-accounting",
+      "on_fail": "block",
+      "root_cause": "重试记账写在了 HealingReport(...) 构造之后。pydantic 在构造时会把 improvement 这个 dict 拷走，之后再往原 dict 赋值，报告里根本看不到——计数确实记了，但读报告的人看不到，等于没有。这类「副作用发生在快照之后」的顺序错误很隐蔽：功能看起来是好的，只是把证据留在了没人看的地方。",
+      "fix": "把记账移到构造之前；测试直接断言报告里的 attempts 字段随次数递增，而不只断言外部 store 的计数——只测后者会漏掉这个 bug。",
+      "at": "2026-10-03T14:17:00+08:00"
     }
   ],
-  "gates_total": 25,
+  "gates_total": 26,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T13:44:41+08:00"
+    "planned_at": "2026-10-03T14:02:24+08:00"
   },
-  "based_on": "24299ab",
+  "based_on": "3371c6a",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

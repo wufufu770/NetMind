@@ -40,6 +40,10 @@ class PersistentStore:
         # 与 flow_cookies 同一个道理：命令文本可伪造，登记不可。缺了它，
         # `ip route del` 这类危险操作就永远拿不到归属证明，回滚无从谈起。
         self.owned_routes: Dict[str, str] = {}
+        # 自动处置的连续失败计数，key 为 "<诊断类型>@<接口>"。落盘是必须的：
+        # 计数只在内存里的话，重启一次就把上限绕过去了。
+        self.heal_attempts: Dict[str, Dict[str, Any]] = {}
+        self.last_heal_execution: str = ''
         self._lock=threading.RLock()
         self._dirty=False
         self._last_save=0.0
@@ -69,6 +73,8 @@ class PersistentStore:
             'agent_schedules': self.agent_schedules,
             'flow_cookies': dict(self.flow_cookies),
             'owned_routes': dict(self.owned_routes),
+            'heal_attempts': {k: dict(v) for k, v in self.heal_attempts.items()},
+            'last_heal_execution': self.last_heal_execution,
         }
 
     def save(self) -> bool:
@@ -255,6 +261,9 @@ class PersistentStore:
         self.agent_schedules.update(raw.get('agent_schedules', {}))
         self.flow_cookies.update({str(k): str(v) for k, v in raw.get('flow_cookies', {}).items()})
         self.owned_routes.update({str(k): str(v) for k, v in raw.get('owned_routes', {}).items()})
+        self.heal_attempts.update({str(k): dict(v)
+                                   for k, v in raw.get('heal_attempts', {}).items()})
+        self.last_heal_execution = str(raw.get('last_heal_execution', ''))
         if len(self.executions) > 200:
             self.executions = dict(list(self.executions.items())[-200:])
 

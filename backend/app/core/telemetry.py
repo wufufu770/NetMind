@@ -183,13 +183,36 @@ class TelemetryService:
             撤不回来时（如 congestion 清了原有整形但没记参数）如实说撤不回来，
             并在 rollback 段给出可执行的诊断命令，不拿只读检查冒充回滚
         """
+        from .heal_guard import (AttemptCapReached, HealingDisabled, check_attempt,
+                                 guard, record_failure, record_success, target_for)
         from .remediation import RemediationUnavailable, build, rollback_info
 
         before = STORE.telemetry[-1] if STORE.telemetry else self.sample()
         eid = f'heal-{uuid4().hex[:8]}'
+        STORE.last_heal_execution = eid
+
+        # 调用方没给目标就按配置兜底；两处都没有则自动处置处于关闭状态。
+        # 不猜接口：猜错会把命令下到错误的口上。
+        params: dict = {'iface': iface, 'backup': backup, 'rate_mbps': rate_mbps,
+                        'bridge': bridge}
+        if not iface:
+            try:
+                params.update(target_for(diagnosis.type))
+            except HealingDisabled as off:
+                # 「未启用」和「没做」都要落到同一句结论上：设备侧什么都没变。
+                # 报告是要被人扫读的，只说「未配置」不足以让人确认没被动过设备。
+                rep = HealingReport(
+                    action_taken=f'未执行：{off}', before_snapshot=before,
+                    after_snapshot=before, success=False, verified=False,
+                    improvement={'disabled': str(off), 'target_configured': False},
+                    summary=f'{off}；未产生任何设备侧变更')
+                STORE.log('healing', rep.summary, 'warn', eid)
+                return rep
+
         try:
-            plan = build(diagnosis, iface=iface, backup=backup,
-                         rate_mbps=rate_mbps, bridge=bridge, execution_id=eid)
+            plan = build(diagnosis, iface=params['iface'], backup=params['backup'],
+                         rate_mbps=params['rate_mbps'], bridge=params['bridge'],
+                         execution_id=eid)
         except RemediationUnavailable as exc:
             self.fault = 'normal' if diagnosis.type == 'normal' else self.fault
             rep = HealingReport(
@@ -198,6 +221,20 @@ class TelemetryService:
                 improvement={'no_action': str(exc)},
                 summary=f'{exc}；未产生任何设备侧变更')
             STORE.log('healing', rep.summary, 'info', eid)
+            return rep
+
+        kind = diagnosis.type
+        iface_used = params['iface']
+        try:
+            prior = guard(STORE, kind, iface_used)
+        except AttemptCapReached as cap:
+            rep = HealingReport(
+                action_taken=f'未执行：{cap}', before_snapshot=before,
+                after_snapshot=before, success=False, verified=False,
+                improvement={'capped': str(cap), 'target_configured': True,
+                             'attempts_before': check_attempt(STORE, kind, iface_used)},
+                summary=str(cap))
+            STORE.log('healing', rep.summary, 'error', eid)
             return rep
 
         from .transaction import TRANSACTION
@@ -224,9 +261,13 @@ class TelemetryService:
             'loss_before': loss_before, 'loss_after': loss_after,
             'measurement_source': str(after.source),
             'measured': 'real' if str(after.source) in ('real', 'lab') else 'simulated',
+            'attempts_before': prior,
         }
         if str(deploy.mode) != 'real':
             why = f'当前是 {deploy.mode} 模式'
+            # 干跑没动过设备，不消耗重试预算——那不是「试过一次没成」，
+            # 只是没真的做。同样必须写在构造报告之前。
+            imp['attempts_before'] = prior
             rep = HealingReport(
                 action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
                 before_snapshot=before, after_snapshot=after,
@@ -238,6 +279,9 @@ class TelemetryService:
             # 模式是 real 但下发失败了——这跟「没下发」是两回事，文案不能说混
             failed = [e for e in imp['executed'] if e.get('command') and not e.get('success')]
             detail = '; '.join(f"{e.get('command')} → {str(e.get('output'))[:60]}" for e in failed[:2])
+            # 记账必须在构造报告之前：pydantic 构造时会把 improvement 拷走，
+            # 之后再往那个 dict 里赋值，报告里看不到。
+            imp['attempts'] = record_failure(STORE, kind, iface_used)
             rep = HealingReport(
                 action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
                 before_snapshot=before, after_snapshot=after,
@@ -245,7 +289,8 @@ class TelemetryService:
                 summary=(f'**真下发了但设备拒绝执行**：{detail or "命令返回非零"}——'
                          f'设备侧状态未改变，不报成功'))
         else:
-            rb = rollback_info(diagnosis.type, {'iface': iface, 'backup': backup})
+            rb = rollback_info(diagnosis.type,
+                                {'iface': iface_used, 'backup': params['backup']})
             if not improved:
                 # 真下发了但没改善——撤销，别把更糟的状态留在设备上。
                 # 能力不足时（congestion 清了原有整形但没记参数）如实说撤不回来，
@@ -253,6 +298,7 @@ class TelemetryService:
                 res = TRANSACTION.rollback(
                     plan, eid,
                     reason=f'post-verify no improvement: {lat_before}->{lat_after}ms')
+                imp['attempts'] = record_failure(STORE, kind, iface_used)
                 rb.update(attempted=True, rolled_back=res.rolled_back,
                           complete=res.rollback_complete,
                           executed_cmds=[e.model_dump(mode='json') for e in res.executed])
@@ -268,6 +314,7 @@ class TelemetryService:
                              f'丢包 {loss_before}→{loss_after}（**未改善**），{verb}'
                              f'——{rb["note"]}'))
             else:
+                record_success(STORE, kind, iface_used)
                 rb.update(attempted=False, rolled_back=False, complete=None)
                 imp['rollback'] = rb
                 rep = HealingReport(

@@ -29,7 +29,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Routing state | ✅ Real — FRR/zebra 路由表（仅直连+静态，无 OSPF/BGP） |
 | Diagnosis thresholds | ⚠️ Calibrated on one lab topology; `throughput` judgement needs a baseline and is skipped when absent |
 | Post-apply verification | ✅ Real — `diagnose/closed_loop.py`; `success` 由实测前后对比推出，未重测即 `verified=False`（跑测见 `docs/closed-loop-run-report.md`） |
-| Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 路径已在真实设备端到端跑通（150.277ms→0.203ms，设备侧 qdisc `netem`→`noqueue` 读回确认）；⚠️ `link_down` 路径未在设备上实跑；真实生产故障未验证 |
+| Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 路径已在真实设备端到端跑通（150.277ms→0.203ms，设备侧 qdisc `netem`→`noqueue` 读回确认）；⚠️ **auto-remediation is off unless `NETMIND_HEAL_IFACE` is set** — the interface is never guessed, since guessing wrong targets the wrong port; ⚠️ `link_down` path not yet exercised on a device; real production faults unverified |
+| Healing safety rails | ✅ Covered — attempts are counted per (diagnosis, interface) and persisted; reaching the cap (default 3, `NETMIND_HEAL_MAX_ATTEMPTS`) stops auto-remediation and hands off to a human; a success clears the count, and a dry run never consumes budget since the device was untouched |
 | Offline rule engine + mock model | ✅ Real |
 | Real LLM calls | ✅ Real (API key required) |
 | Topology & telemetry data | ✅ Real when a probe target is configured (`NETMIND_PROBE_TARGET`) — ICMP from the monitored device; ⚠️ falls back to a **labelled** simulator when no probe target is set (snapshot carries `source=simulated`, diagnosis confidence is discounted accordingly) |

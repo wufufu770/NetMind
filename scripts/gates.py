@@ -40,6 +40,83 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='healing-is-guarded',
+        desc='自动处置须有显式目标且有次数上限；未配置时如实说未启用，不假装成功',
+        on_fail='block',
+        check=r"""
+# 两个问题必须有确定答案：动哪块、动几次。
+#
+# 此前主工作流的 HealingAgent 是永远动不了的：workflow.py 调 heal(diag) 不传
+# iface，remediation.build() 缺 iface 就抛 RemediationUnavailable，每次都走
+# 「无需处置」。更糟的是那一行无论返回什么都记 Status.success——审计里看过去
+# 就是「自愈成功了」。cycle 21 做的真自愈从主路径根本走不到。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+_keys = ('NETMIND_HEAL_IFACE', 'NETMIND_HEAL_BACKUP_ROUTE', 'NETMIND_HEAL_MAX_ATTEMPTS',
+         'NETMIND_ENABLE_REAL_COMMANDS', 'NETMIND_DRIVER', 'NETMIND_PROBE_TARGET')
+_saved = {k: os.environ.get(k) for k in _keys}
+for k in _keys:
+    os.environ.pop(k, None)
+
+from app.core import heal_guard                    # noqa: E402
+from app.core.workflow import ORCHESTRATOR         # noqa: E402
+from app.core.telemetry import TELEMETRY           # noqa: E402
+from app.store import STORE                        # noqa: E402
+from app.schemas import Diagnosis, TelemetrySnapshot  # noqa: E402
+
+try:
+    # 1) 没配接口 → 拒绝并说清缺什么，不猜
+    try:
+        heal_guard.target_for('congestion')
+        raise AssertionError('未配置处置接口却给出了目标——在猜')
+    except heal_guard.HealingDisabled as e:
+        assert heal_guard.IFACE_ENV in str(e), '拒绝时必须点名缺哪个配置项'
+
+    # 2) 闭环里未配置时，HealingAgent 步骤不得记 success
+    STORE.executions.clear(); STORE.telemetry.clear(); STORE.heal_attempts.clear()
+    TELEMETRY.inject('congestion')
+    ex = ORCHESTRATOR.run_closed_loop('给会议网提高优先级', dry_run=True)
+    step = [s for s in ex.steps if s.agent == 'HealingAgent']
+    assert step, '闭环里没有 HealingAgent 步骤'
+    assert step[0].status.value != 'success', \
+        '什么都没做却把 HealingAgent 记成 success——审计里看过去就是自愈成功了'
+    assert ex.healing.improvement.get('target_configured') is False
+
+    # 3) 配了接口后，闭环里自愈必须真能生成命令（否则护栏把功能锁死了）
+    os.environ[heal_guard.IFACE_ENV] = 'eth0'
+    TELEMETRY.inject('congestion')
+    ex2 = ORCHESTRATOR.run_closed_loop('给会议网提高优先级', dry_run=True)
+    cmds = ex2.healing.improvement.get('planned_commands')
+    assert cmds, '配了目标后闭环仍不生成任何处置命令——护栏把功能锁死了'
+
+    # 4) 次数上限真的会拦
+    class _S:
+        def __init__(self):
+            self.heal_attempts = {}; self.last_heal_execution = ''; self.dirty = 0
+        def mark_dirty(self): self.dirty += 1
+    s = _S()
+    for _ in range(heal_guard.max_attempts()):
+        heal_guard.guard(s, 'congestion', 'eth0')
+        heal_guard.record_failure(s, 'congestion', 'eth0')
+    try:
+        heal_guard.guard(s, 'congestion', 'eth0')
+        raise AssertionError('连续失败已达上限却仍放行——上限形同虚设')
+    except heal_guard.AttemptCapReached:
+        pass
+
+    # 5) 计数必须落盘，否则重启一次就绕过去了
+    heal_guard.record_failure(STORE, 'congestion', 'eth9')
+    assert STORE.to_json().get('heal_attempts'), 'heal_attempts 未进持久化快照'
+    STORE.heal_attempts.clear()
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+""",
+    ),
+    Gate(
         id='dashboard-no-fabricated-numbers',
         desc='面板数字必须来自真实状态；无数据时返回 null 而非写死的常量',
         on_fail='block',

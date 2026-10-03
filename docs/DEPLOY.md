@@ -123,9 +123,33 @@ NETMIND_SSH_DEVICE_TYPE=cisco_ios   # 见 GET /api/vendors
 
 支持哪些厂商、验证到什么程度，见 `GET /api/vendors`——每家带 `verified` / `declared` / `blocked` 等级。**只有 `verified` 的那家是在真实设备上跑通过的**，其余是映射与依赖齐备但未在真机验过。矩阵生成源是 `backend/app/diagnose/vendor_matrix.py`。
 
-危险操作按**命令语义**拦截（`del-flows` / `iptables -F` / `link down` / `route del` / `addr del`），与设备名无关；回滚只放行带 NetMind 签发 cookie 的流表。
+危险操作按**命令语义**拦截（`del-flows` / `iptables -F` / `link down` / `route del` / `addr del`），与设备名无关；回滚只放行带 NetMind 签发 cookie 的流表，或本系统 `ip route add` 下去、规格完全一致的路由（`ip route del` 没有 cookie 可挂，归属靠登记——命令文本可伪造，登记不可）。
 
-## 8. 出了故障先看哪儿
+## 8. 开启自动处置（默认关闭）
+
+**默认不开启。** 处置命令长成 `tc qdisc del dev {iface} root`，接口猜错就等于对
+错误的口下手——在多接口的真机上，那可能正是管理口。项目对设备采集一直坚持
+「不知道就如实拒绝，不猜驱动」，处置更不该猜。
+
+```bash
+NETMIND_HEAL_IFACE=eth0                        # 必填；不填则自愈不动作
+NETMIND_HEAL_BACKUP_ROUTE="10.9.0.0/24 via 192.0.2.9"   # 仅 link_down 需要
+NETMIND_HEAL_MAX_ATTEMPTS=3                    # 连续失败上限，默认 3
+```
+
+未配置时自愈会返回 `target_configured: false` 并说明缺哪一项，`success=false`；
+HealingAgent 这一步记为 `waiting`（等前置条件），**不会**记成成功。
+
+次数按 `(诊断类型, 接口)` 独立记账并**落盘**——只在内存里的话重启一次就把上限
+绕过去了。同一故障连续处置到上限就停止自动动作、转人工，确认根因后调大
+`NETMIND_HEAL_MAX_ATTEMPTS` 或清理计数即可恢复。成功一次即清零；干跑不消耗
+预算（设备根本没被动过，那不算「试过一次没成」）。
+
+另外注意：`congestion` 的处置（清队列整形）**没有可用的自动回滚**——删了设备
+原有整形但处置前没记参数，造不出等价的逆命令。没改善时会如实报「无法自动回滚」，
+需人工确认。
+
+## 9. 出了故障先看哪儿
 
 | 症状 | 先查 |
 |---|---|
@@ -136,6 +160,9 @@ NETMIND_SSH_DEVICE_TYPE=cisco_ios   # 见 GET /api/vendors
 | 数据看着不对 | `python3 scripts/data_ops.py verify`，坏了就 `restore` |
 | 接口偶发变慢 | 单 worker 下写操作持锁；见 `load-test-baseline.md` |
 | 设备命令没生效 | 确认 `NETMIND_ENABLE_REAL_COMMANDS=true`；否则永远干跑 |
-| 回滚被拦 | 回滚命令必须带 NetMind 格式 cookie；不带说明它不是本系统签发的流表 |
+| 自愈不动作 | 确认 `NETMIND_HEAL_IFACE` 已配（默认关闭，见第 8 节）；未配时返回 `target_configured: false` |
+| 自愈报「已连续处置 N 次」 | 达到上限，自动动作已停。确认根因后调大 `NETMIND_HEAL_MAX_ATTEMPTS` 或清理 `heal_attempts` |
+| 回滚被拦 | `ovs-ofctl del-flows` 需带 NetMind 格式 cookie；`ip route del` 需该路由是本系统 `ip route add` 下去的 |
+| 处置没改善但撤不回来 | `congestion` 结构性不可回滚（未记录原整形参数），需人工确认 |
 
 更细的：`.netmind-loop/state.json` 有当前状态与门禁清单；`docs/commercial-readiness-audit.md` 有完整的成熟度盘点与已知风险。
