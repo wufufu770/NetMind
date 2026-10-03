@@ -56,12 +56,25 @@ up() {
   done
   sleep 4   # 等 FRR 的 watchfrr 把 zebra 拉起来
 
+  # 被监控主机：真实 SSH 端点，主链路的探测从这里发起。
+  # 必须给 NET_ADMIN——没有它连容器内 root 都加不了路由，主链路就测不了跨段路径。
+  docker rm -f nm-dev1 >/dev/null 2>&1 || true
+  docker run -d --name nm-dev1 --hostname dev1 --network "$LAB_SW1" --ip 192.168.1.30 \
+    --cap-add=NET_ADMIN --cap-add=NET_RAW \
+    -e PASSWORD=netmind123 -e PASSWORD_ACCESS=true \
+    -e USER_NAME=netmind -e USER_PASSWORD=netmind123 -e USER_PASSWORD_ACCESS=true \
+    -e SUDO_ACCESS=true linuxserver/openssh-server >/dev/null
+  sleep 8   # 等 sshd 就绪
+
   # 远端段挂 r2 的跨段口——挂在 r1 自己的口上会让流量不出该段，测不到真路由
   docker exec nm-r2 ip addr add "$FAR_SEG/24" dev eth1
-  docker exec nm-r1 ip route add 192.168.3.0/24 via "$R2_R2NET" dev eth1
+  docker exec nm-r1 ip route replace 192.168.3.0/24 via "$R2_R2NET" dev eth1
   docker exec nm-client1 ip route replace 192.168.3.0/24 via "$R1_SW1"
+  # 被监控主机也要一条经 r1 到远端段的路由，否则探测只走同段，测不到跨段劣化
+  docker exec nm-dev1 ip route replace 192.168.3.0/24 via "$R1_SW1"
 
   echo "实验台就绪：client1(${CLIENT1_IP}) → r1(${R1_SW1}) → r2(${R2_R2NET}) → ${FAR_SEG}"
+  echo "  被监控主机 dev1 = 192.168.1.30:2222（netmind/netmind123），主链路从这里探测"
 }
 
 # 采一次真实 ping，输出原始报文（供解析，不在此处做判定）
@@ -90,7 +103,7 @@ measure() {
 }
 
 down() {
-  for c in nm-client1 nm-client2 nm-r1 nm-r2; do docker rm -f "$c" >/dev/null 2>&1 || true; done
+  for c in nm-client1 nm-client2 nm-r1 nm-r2 nm-dev1; do docker rm -f "$c" >/dev/null 2>&1 || true; done
   docker network rm "$LAB_SW1" "$LAB_R2NET" >/dev/null 2>&1 || true
   echo "实验台已清理"
 }

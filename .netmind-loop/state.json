@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 19,
+  "cycle": 20,
   "phase": "plan",
-  "updated": "2026-10-03T02:56:39+08:00",
+  "updated": "2026-10-03T10:50:06+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,11 +20,11 @@
     }
   },
   "metrics": {
-    "tests_collected": 181,
-    "gates_total": 21,
-    "gates_passed": 21,
+    "tests_collected": 194,
+    "gates_total": 22,
+    "gates_passed": 22,
     "gates_warned": 0,
-    "src_lines": 11015,
+    "src_lines": 11324,
     "generic_names": 190,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -254,6 +254,18 @@
       "gates_passed": 21,
       "gates_warned": 0,
       "src_lines": 11015,
+      "generic_names": 190,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 20,
+      "tests_collected": 194,
+      "gates_total": 21,
+      "gates_passed": 22,
+      "gates_warned": 0,
+      "src_lines": 11324,
       "generic_names": 190,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -669,6 +681,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W-real-telemetry",
+      "title": "主链路接真实遥测 —— 拆掉诚实表上最大的那条 ⚠️",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -842,6 +862,14 @@
       "shipped": "按来源的进程内令牌桶：write 5/s·突发10、read 50/s、public 5/s；超限 429+Retry-After；刻意放在鉴权之前（未授权洪水请求同样要挡）。NETMIND_RATE_LIMIT=off 供批量导入。10 个测试覆盖分组/窗口滑动/来源隔离/读松写紧/可关闭/429/限流先于鉴权/探活不被挤掉。SECURITY.md 的「无速率限制」已更新（RBAC 那半条仍在 backlog）。过程中修了两处：限流值对合法批量操作偏紧（13 条既有测试挂）、init_from_env 在导入期改全局导致顺序依赖（同代码随机失败）——改为每次判定时读 env。",
       "at": "2026-10-03T02:56:11+08:00",
       "based_on": "3207c16"
+    },
+    {
+      "cycle": 20,
+      "id": "W-real-telemetry",
+      "title": "主链路接真实遥测 —— 拆掉诚实表上最大的那条 ⚠️",
+      "shipped": "TELEMETRY.sample() 优先真探测：经已建立的 SSH 连接在被监控设备上发起 ICMP，解析真实报文。配 NETMIND_PROBE_TARGET 启用；provenance() 可查来源；模拟数据置信度打折 0.6 且证据带 source。实测四态：健康 0.14ms→normal(0.9)、拥塞 120.51ms→congestion(0.657)、断链 999ms/100%→link_down、降级模拟 120ms→congestion(0.394)。修一个只有真数据能发现的 bug：5%~90% 丢包被判成 link_down，而模拟器拥塞态丢包仅 1.8%、永远落在阈值以下，该分支从未被执行。门禁 telemetry-not-guessed 锁住。13 个新测试，全量 181→194。",
+      "at": "2026-10-03T10:48:22+08:00",
+      "based_on": "7b8d8cb"
     }
   ],
   "retro": [
@@ -1148,17 +1176,33 @@
       "root_cause": "① 加限流后 13 条既有测试挂：单个 CRUD 往返测试的合法写操作就超过我设的 10 次突发上限。说明该值对批量场景偏紧 ② init_from_env() 在 main.py 导入期改模块全局，导致「谁先导入谁说了算」——同代码有时限流有时不限，测试里表现为随机失败",
       "fix": "① 引入 NETMIND_RATE_LIMIT=off 供批量导入（一次导几十条策略是正常运维动作，429 挡它是纯伤害）② 限流判定改为每次读 env 而非导入期缓存，彻底消除顺序依赖 ③ 业务测试默认关限流、限流测试显式开启 ④ 压测显式关限流并在输出里说明限流对吞吐的影响。教训：限流值是产品决策不是技术细节——设太紧比不设更糟",
       "at": "2026-10-03T02:54:53+08:00"
+    },
+    {
+      "cycle": 20,
+      "gate": "telemetry(模拟器的盲区)",
+      "on_fail": "manual",
+      "root_cause": "旧规则把 5%~90% 丢包判成 link_down。模拟器的拥塞态丢包只有 1.8%，永远落在 5% 以下，所以那条分支从未被执行——测试全绿、模拟器一直'对'。真实探测一上来就是 120ms+10% 丢包，当场打脸",
+      "fix": "① 改为 5%~90% 判 congestion、>=90% 才判 link_down ② 门禁 telemetry-not-guessed 锁住两个阈值不得混淆 ③ 教训：模拟器造不出的区间，测试就永远测不到；覆盖率的真实含义是「你测过的区间」，不是「代码被执行过的行数」。数据源单一的项目，盲区会伪装成绿色",
+      "at": "2026-10-03T10:44:52+08:00"
+    },
+    {
+      "cycle": 20,
+      "gate": "no-ai-smell",
+      "on_fail": "block",
+      "root_cause": "  ✗ CHANGELOG.md\n      [NUM]:17 无源数字「5%」需挂命令/报告/链接\n      [NUM]:18 无源数字「5%」需挂命令/报告/链接\n      [NUM]:19 无源数字「120ms」需挂命令/报告/链接\n  ✓ docs/closed-loop-run-report.md\n  客户可见面 AI 味命中 3 项",
+      "fix": "待定——本轮不记根因的门禁会原样复现",
+      "at": "2026-10-03T10:46:29+08:00"
     }
   ],
-  "gates_total": 21,
+  "gates_total": 22,
   "next_round": {
     "id": "C1-auth-default-safe",
     "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
     "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
     "deliverable": "",
-    "planned_at": "2026-10-03T02:56:06+08:00"
+    "planned_at": "2026-10-03T10:48:16+08:00"
   },
-  "based_on": "3207c16",
+  "based_on": "7b8d8cb",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

@@ -348,6 +348,49 @@ assert not res['failures'], (
 """,
     ),
     Gate(
+        id='telemetry-not-guessed',
+        desc='遥测要么真测（source=real），要么降级且自报 simulated；断链与劣化的判据不得混淆',
+        on_fail='block',
+        check=r"""
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+from app.core.telemetry import LOSS_DEGRADED, LOSS_LINK_DOWN
+from app.schemas import TelemetrySnapshot
+from app.core.telemetry import TELEMETRY
+
+# 1) 断链 vs 劣化的阈值不得混淆。
+#    模拟器的拥塞态丢包只有 1.8%，永远落在 5% 以下，所以「5%~90% 该判什么」
+#    这条分支在模拟数据下从未被执行过——真实探测一上来就是 120ms+10% 丢包，当场判错。
+assert LOSS_LINK_DOWN > LOSS_DEGRADED, '断链阈值必须高于劣化阈值'
+s = TelemetrySnapshot(latency_ms=120.0, packet_loss=0.10, throughput_mbps=0.0,
+                      alert=True, source='real')
+d = TELEMETRY.diagnose([s])
+assert d.type == 'congestion', '5%%~90%% 丢包 + 高延迟应为 congestion，实际 %s' % d.type
+s2 = TelemetrySnapshot(latency_ms=999.0, packet_loss=1.0, throughput_mbps=0.0,
+                       alert=True, source='real')
+assert TELEMETRY.diagnose([s2]).type == 'link_down', '近乎全丢才是 link_down'
+
+# 2) 模拟数据的结论必须比真实数据的置信度低，且证据里要标出来源。
+real = TelemetrySnapshot(latency_ms=120.0, packet_loss=0.0, throughput_mbps=0.0,
+                         alert=True, source='real')
+fake = TelemetrySnapshot(latency_ms=120.0, packet_loss=0.0, throughput_mbps=0.0,
+                         alert=True, source='simulated')
+d_real, d_fake = TELEMETRY.diagnose([real]), TELEMETRY.diagnose([fake])
+assert d_fake.confidence < d_real.confidence, '模拟数据的置信度必须打折'
+assert d_fake.evidence.get('source') == 'simulated', '模拟来源必须出现在证据里'
+
+# 3) 没配探测点时必须降级且如实标注，绝不静默编数
+old = os.environ.pop('NETMIND_PROBE_TARGET', None)
+try:
+    snap = TELEMETRY.sample(record=False)
+    assert snap.source == 'simulated', '没有探测点却产出了非 simulated 的快照'
+    assert TELEMETRY.provenance()['real'] is False
+finally:
+    if old is not None:
+        os.environ['NETMIND_PROBE_TARGET'] = old
+""",
+    ),
+    Gate(
         id='load-test-no-loss',
         desc='并发压测：零错误 + 压完数据不丢不坏（延迟不设硬阈值，CI 上会抖）',
         on_fail='block',

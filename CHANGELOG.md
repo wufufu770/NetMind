@@ -4,6 +4,25 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- **主链路接真实遥测**。`TELEMETRY.sample()` 优先真探测：经已建立的 SSH 连接在
+  **被监控设备上**发起 ICMP，解析真实报文（本地 ping 只能测到本地网卡，不是网络
+  运维的真实测法）。配 `NETMIND_PROBE_TARGET` 即启用
+- 遥测来源可查：`TELEMETRY.provenance()` 回答「这个数字是测的还是模拟的」
+- 模拟数据的诊断结论**置信度打折**（0.6 系数）且证据里带 `source`——凭硬编码常量
+  得出的判断不该有高置信度
+- `test_real_telemetry.py` 13 例：真实报文解析、判据边界、置信度折扣、降级标注、
+  假 SSH 下的真探测路径
+
+### Fixed
+- **「5%~90% 丢包」被判成 link_down**。断链是 `LOSS_LINK_DOWN=0.9`，5%~90% 是链路劣化
+  （`LOSS_DEGRADED=0.05` 之上）。模拟器的拥塞态丢包只有 1.8%，永远落在 5% 以下，所以这条
+  分支在模拟数据下**从未被执行过**——真实探测一上来就是 120ms + 10% 丢包，当场判错。
+  回归见 `backend/tests/test_real_telemetry.py`，实测报文 `tests/fixtures/lab/ping-congestion.txt`
+- 置信度折扣原先用「样本数减半」实现，只有 1 个样本时减半等于没减，折扣静默失效。
+  改为独立系数
+- `scripts/lab.sh` 纳入被监控主机 `nm-dev1`（SSH 端点）并为其配 NET_ADMIN 与跨段
+  路由——没有它主链路测不了跨段路径
+
 - 速率限制：按来源的进程内令牌桶（write 5/s·突发 10、read 50/s、public 5/s），
   补上 `SECURITY.md` 自认的缺口之一。超限 429 + `Retry-After`；**放在鉴权之前**——
   未授权的洪水请求同样要挡。`NETMIND_RATE_LIMIT=off` 供批量导入
