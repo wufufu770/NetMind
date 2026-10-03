@@ -70,7 +70,18 @@ GET /api/vendors.md    # Markdown 表
 ## Quick start
 
 ```bash
+# docker compose 必须先设 token，否则面板每个接口都 403。
+# 原因：端口映射进来的请求对端是网关 IP 而非 127.0.0.1，
+# 即便你就在自己电脑上访问——详见 docs/DEPLOY.md 第 0 节。
+export NETMIND_ADMIN_TOKEN=$(python3 -c "import secrets;print(secrets.token_urlsafe(32))")
+echo "$NETMIND_ADMIN_TOKEN"          # 记下来
 docker compose up -d --build
+```
+
+然后在浏览器控制台执行一次，让面板带上凭据：
+
+```js
+localStorage.setItem('netmind-admin-token', '<上面那个值>');
 ```
 
 - Dashboard: http://localhost:5173 · API docs: http://localhost:8000/docs

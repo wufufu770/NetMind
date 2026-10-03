@@ -6,9 +6,16 @@ services:
       - NETMIND_DRIVER=simulation
       - NETMIND_ENABLE_REAL_COMMANDS=false
       - NETMIND_DATA_FILE=/app/data/netmind_store.json
-      # 留空 = 仅本机可访问（远程一律 403）。这是安全的默认值。
-      # 任何非本机访问都必须设 NETMIND_ADMIN_TOKEN，否则连 localhost 之外的
-      # 任何接口都拿不到。见 docs/DEPLOY.md 第 1 节。
+      # ⚠️ 用 compose 起时，这个变量**必须**设，否则面板全挂。
+      #
+      # 原因：后端的「只许本机」判的是对端地址是不是 127.0.0.1。而经
+      # docker 端口映射进来的请求，对端看到的是**网关 IP**（172.x.x.1），
+      # 不是 loopback——哪怕请求是你在自己电脑上用浏览器发的。
+      # 于是默认（token 留空）下 /api/* 一律 403，面板能打开但一个数据都拿不到。
+      #
+      # 起法：NETMIND_ADMIN_TOKEN=$(python3 -c "import secrets;print(secrets.token_urlsafe(32))") docker compose up -d
+      # 之后在浏览器控制台执行 localStorage.setItem('netmind-admin-token', '<同一个值>')。
+      # 直接跑 uvicorn（不经容器）时不需要——那时确实来自 loopback。
       - NETMIND_ADMIN_TOKEN=${NETMIND_ADMIN_TOKEN:-}
     volumes:
       - netmind-data:/app/data

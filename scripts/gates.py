@@ -408,6 +408,54 @@ assert re.search(r'`(scripts|backend|docs|tests)/', body), \
 """,
     ),
     Gate(
+        id='container-deploy-needs-token',
+        desc='docker compose 部署必须设 token —— 端口映射后对端不是 loopback',
+        on_fail='block',
+        check=r"""
+# 实测过的部署陷阱：默认 `docker compose up` 之后，面板能打开（前端 200），
+# 但它要调的每个后端接口都 403，因为
+#   · 后端判「本机」看对端是不是 127.0.0.1
+#   · 经端口映射进来的请求，对端是网关 IP（172.x.x.1）
+# 容器内自访 200、宿主机经 localhost:8000 访问 403——同一台机器，两种结果。
+#
+# 这不是安全模型有问题（默认拒绝是对的），是可发现性问题：报错只说
+# 「请设置 NETMIND_ADMIN_TOKEN」，而使用者以为自己已经设过了。
+from pathlib import Path as P
+compose = (ROOT / 'docker-compose.yml').read_text(encoding='utf-8')
+deploy = (ROOT / 'docs' / 'DEPLOY.md').read_text(encoding='utf-8')
+readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+
+# 1) compose 里那个变量上方必须有醒目提示，而不是一句「留空 = 仅本机」
+import re as _re
+env_idx = compose.find('NETMIND_ADMIN_TOKEN')
+assert env_idx != -1, 'docker-compose.yml 里没有 NETMIND_ADMIN_TOKEN——部署者无从得知要设'
+nearby = compose[max(0, env_idx - 1400):env_idx]
+assert ('必须' in nearby or '⚠️' in nearby), \
+    'docker-compose.yml 里 NETMIND_ADMIN_TOKEN 上方没有「必须设置」的提示'
+assert ('网关' in nearby or 'docker' in nearby.lower() or '端口映射' in nearby), \
+    'compose 的提示没说清原因：经端口映射后对端不是 loopback'
+
+# 2) 部署指南必须把它放在最前面，而不是埋在正文里
+head = deploy[:deploy.find('## 1.')]
+assert 'docker compose' in head and ('网关' in head or '端口映射' in head), \
+    'docs/DEPLOY.md 的开头没有讲清「compose 必须设 token」，使用者会先撞上 403'
+assert 'loopback-only' in compose or 'NETMIND_ADMIN_TOKEN' in compose
+
+# 3) README 的快速开始不能让人以为开箱即用
+assert ('docker compose' not in readme) or ('NETMIND_ADMIN_TOKEN' in readme), \
+    'README 提到 docker compose 却没有提必须设 token'
+
+# 4) 403 报错本身要点明这个场景——使用者撞上它时还没读部署文档
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+from app.core.access import decide            # noqa: E402
+d = decide('GET', '/api/dashboard', '172.18.0.1', '', False)
+assert d.allowed is False and d.status == 403
+assert 'docker' in d.reason, \
+    '403 报错没提 docker 场景——使用者会以为自己已经设过 token 了'
+""",
+    ),
+    Gate(
         id='security-doc-matches-behavior',
         desc='SECURITY.md 的关键声明必须与实现一致（认证范围 / 回滚门 / 数据外发）',
         on_fail='block',

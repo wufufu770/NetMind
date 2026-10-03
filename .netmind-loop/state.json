@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 32,
+  "cycle": 33,
   "phase": "plan",
-  "updated": "2026-10-03T22:03:39+08:00",
+  "updated": "2026-10-03T22:24:05+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,9 +22,9 @@
   "metrics": {
     "tests_collected": 272,
     "gates_total": 22,
-    "gates_passed": 34,
+    "gates_passed": 35,
     "gates_warned": 0,
-    "src_lines": 14332,
+    "src_lines": 14389,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -410,6 +410,18 @@
       "gates_passed": 34,
       "gates_warned": 0,
       "src_lines": 14332,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 33,
+      "tests_collected": 272,
+      "gates_total": 22,
+      "gates_passed": 35,
+      "gates_warned": 0,
+      "src_lines": 14389,
       "generic_names": 195,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -907,6 +919,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "container-deploy-needs-token",
+      "title": "默认 `docker compose up` 之后面板全挂 —— 部署文档是承诺，我从没端到端跑过",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -1189,6 +1209,14 @@
       "shipped": "扫 API.md 与实际路由（以 OpenAPI 为准，120 条）：先误报 10 条「文档有、实际无」，逐条核实发现多数是路径参数省略（`/api/deploy` vs `/api/deploy/{execution_id}`）与我匹配器取首个造成的假阳性——**扫出来不等于有问题**。真正的命中是认证范围那句：实测 /api/system/status、/api/dashboard、/api/telemetry/latest 在配 token 后不带凭据均 401，而文档说只保护非 GET。**同一句错话在 SECURITY.md / docs/API.md / README.md 各留了一份**，而我上一轮的门禁只查 SECURITY.md。**门禁覆盖了它检查的那份，并不代表别的文档是对的**——一个只盯单文件的门禁会让人产生「这类问题已收口」的错觉，比没有门禁更危险。现把 `security-doc-matches-behavior` 扩到全部客户可见文档（README / SECURITY / CHANGELOG / docs/*.md），任一份出现该错误说法即拦；已用「在第三份文档 DEPLOY.md 里塞回 non-GET」的反例验证。三处文档同步改对，API.md 另补只读凭据说明与「本文是主流程摘要、/openapi.json 才是权威」（实测本文覆盖 65/120 条路由）。过程中自己踩了一次：给 API.md 加的「此前说 non-GET 是错的」自注本身含 non-GET，触发了检查——写「这里曾经错过」也会让检查命中，已把自注删掉，历史留在 CHANGELOG。门禁仍 34 条全绿，后端 272、去 AI 味门 0 命中。",
       "at": "2026-10-03T22:03:39+08:00",
       "based_on": "67b09bb"
+    },
+    {
+      "cycle": 33,
+      "id": "container-deploy-needs-token",
+      "title": "默认 `docker compose up` 之后面板全挂 —— 部署文档是承诺，我从没端到端跑过",
+      "shipped": "实测端到端跑 compose：两个镜像构建通过、两个容器都起得来、前后端日志正常，**但默认配置下面板完全不可用**——前端页面 200，而它要调的每个后端接口都 403。对照实验钉死了原因：容器内自访 `/api/system/status` → 200；宿主机经 `localhost:8000` 访问同一路径 → 403。同一台机器，两种结果。根因是后端判「本机」看对端是不是 127.0.0.1，而经 docker 端口映射进来的请求对端是网关 IP（172.x.x.1）——哪怕请求就发自你自己电脑的浏览器。**安全模型是对的（默认拒绝），错在可发现性**：403 报错只说「请设置 token」，使用者会以为自己已经设过了，于是反复重试。四处都点了名：README 快速开始（改成先 export token 再 up，并给浏览器localStorage 的写法）、docs/DEPLOY.md 新增第 0 节（放最前面，因为使用者先撞上 403 才读文档）、docker-compose.yml 变量上方的注释、以及 403 报错正文本身。端到端复验按新写法：未带 token → 401（正确拒绝）、带 token → 200、面板 → 200。新增门禁 container-deploy-needs-token 同时锁住四处（compose 注释、DEPLOY 开头、README、403 报错文案），已用「把提示删回原来那句」的反例验证。顺带记录：前端目前跑的是 Vite dev server（compose 注释自己承认了），生产部署需自行接静态托管 + 反代——这一点仍写在前端 Dockerfile 上，本轮未改，因为换成 nginx 静态托管要动构建产物与反代路径，属另一轮的范围。门禁 34→35 条全绿，后端 272、去 AI 味门 0 命中。",
+      "at": "2026-10-03T22:24:05+08:00",
+      "based_on": "9d9ccbd"
     }
   ],
   "retro": [
@@ -1679,17 +1707,25 @@
       "root_cause": "门禁要区分「断言现状」与「提及历史」。给 API.md 加的「此前说 non-GET 是错的」自注、以及 CHANGELOG 里记录修正史的那条，都因为含有 non-GET 被拦下。若照字面处理，就该把修正记录从变更日志里删掉——那更糟。门禁比它要防的东西更笨，就会被人绕过。",
       "fix": "加 CORRECTION 词表：含「错误/误/曾/此前/原先/改/修正/wrong/earlier/fixed」的行视为在讲历史，放行；其余含 non-GET + token 的行视为断言，拦下。已双向验证：CHANGELOG 的修正记录放行、README 塞回断言被拦。",
       "at": "2026-10-03T21:55:00+08:00"
+    },
+    {
+      "cycle": 33,
+      "gate": "container-deploy-needs-token",
+      "on_fail": "block",
+      "root_cause": "做 B1-appjsx 之前先验了一件更要紧的事：部署文档是对用户的承诺，而我从来没端到端跑过 `docker compose up`。跑完发现——**默认配置下面板全挂**：前端页面 200，但它要调的每个后端接口都 403。容器内自访 200、宿主机经 localhost:8000 访问 403，同一台机器两种结果。根因是后端判「本机」看对端是不是 127.0.0.1，而经端口映射进来的请求对端是网关 IP（172.x.x.1）——哪怕请求就发自自己电脑的浏览器。安全模型是对的（默认拒绝），错在可发现性：报错只说「请设置 token」，使用者会以为自己已经设过了，于是反复重试。",
+      "fix": "四处都点了名：README 快速开始、docs/DEPLOY.md 新增第 0 节（放最前面，因为使用者先撞上 403 再读文档）、docker-compose.yml 变量上方的注释、以及 403 报错正文本身。compose 的快速开始也改成「先 export token 再 up」。端到端复验：按新写法起，未带 token → 401（正确拒绝）、带 token → 200、面板 → 200。门禁 container-deploy-needs-token 锁死四处，已用「把提示删回原来那句」的反例验证。",
+      "at": "2026-10-03T22:20:00+08:00"
     }
   ],
-  "gates_total": 34,
+  "gates_total": 35,
   "next_round": {
     "id": "B1-appjsx",
     "title": "App.jsx 1885 行解耦为 pages/components/hooks",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T22:03:31+08:00"
+    "planned_at": "2026-10-03T22:23:55+08:00"
   },
-  "based_on": "67b09bb",
+  "based_on": "9d9ccbd",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

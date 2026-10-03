@@ -4,6 +4,17 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Fixed
+- **`docker compose up` 之后面板全挂，每个接口 403**。实测：前端页面 200，但
+  `/api/system/status`、`/api/dashboard`、`/api/telemetry/latest` 在宿主机经
+  `localhost:8000` 访问时一律 403；容器内自访同一路径却 200。原因是后端判
+  「本机」看对端是不是 `127.0.0.1`，而经端口映射进来的请求对端是**网关 IP**
+  （`172.x.x.1`）——哪怕请求就发自你自己电脑的浏览器。安全模型是对的（默认拒绝），
+  错在可发现性：报错只说「请设置 token」，使用者会以为自己已经设过了。
+  现三处都点了名：README 快速开始、docs/DEPLOY.md 新增第 0 节、
+  docker-compose.yml 变量上方的注释，以及 403 报错正文本身。
+  门禁 `container-deploy-needs-token` 锁死
+
+### Fixed
 - **「配 token 后只保护非 GET 请求」这句错误说法在三个文档里各留了一份**。
   实际是所有方法含 GET 都要认证：`/api/system/status`、`/api/dashboard`、
   `/api/telemetry/latest` 实测不带 token 均 401。`SECURITY.md` 上一轮已改，

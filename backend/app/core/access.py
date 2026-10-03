@@ -76,9 +76,18 @@ def decide(method: str, path: str, client_host: str | None,
         return AuthDecision(True, 200, '本机访问且未配置 token', 'loopback-only')
     if allow_anon_readonly and method.upper() in SAFE_METHODS:
         return AuthDecision(True, 200, '显式开启匿名只读', 'anon-readonly')
-    return AuthDecision(False, 403,
-                        '未配置 NETMIND_ADMIN_TOKEN，仅允许本机访问。'
-                        '远程访问请设置该环境变量（生产部署必须设置）', 'loopback-only')
+    # 「本机」的判据是对端是不是 127.0.0.1。经 docker 端口映射进来的请求，
+    # 对端看到的是网关 IP——哪怕是你自己浏览器发的。这是最容易踩的一脚：
+    # 面板能打开，但每个接口都 403，而报错若只说「请设置 token」，
+    # 使用者会以为自己已经设过了。实测过，所以这里点明。
+    return AuthDecision(
+        False, 403,
+        '未配置 NETMIND_ADMIN_TOKEN，仅允许本机访问。远程访问请设置该环境变量'
+        '（生产部署必须设置）。'
+        '若你是用 docker compose 起的：端口映射进来的请求对端是网关 IP 而非 '
+        '127.0.0.1，因此**即使在本机浏览器访问也需要设 token**——'
+        '这不是配置错误，是该部署方式下的必然结果。',
+        'loopback-only')
 
 
 def verify_token(provided: str | None, expected: str) -> bool:

@@ -2,14 +2,41 @@
 
 > 面向自托管。NetMind 始终开源免费（MIT），本文件只讲怎么把它**稳定地跑起来**。
 
+## 0. 先看这一条：用 docker compose 起，必须设 token
+
+**`docker compose up` 之后面板会全挂——每个接口 403，除非你先设了 `NETMIND_ADMIN_TOKEN`。**
+
+这不是配置错误，是这种部署方式下的必然结果：
+
+- 后端判「本机」看的是**对端地址是不是 `127.0.0.1`**
+- 而经 docker 端口映射进来的请求，对端看到的是**网关 IP**（`172.x.x.1`）
+- 哪怕请求就是你在自己电脑的浏览器里发的
+
+实测：容器内自访 `/api/system/status` → 200；宿主机经 `localhost:8000` 访问同一路径 → 403。
+
+```bash
+export NETMIND_ADMIN_TOKEN=$(python3 -c "import secrets;print(secrets.token_urlsafe(32))")
+echo "$NETMIND_ADMIN_TOKEN"        # 记下来，浏览器那一步要用
+docker compose up -d
+```
+
+然后在**浏览器控制台**执行一次（Vite 的环境变量是构建期注入的，容器里设 `VITE_*` 对已构建的页面无效）：
+
+```js
+localStorage.setItem('netmind-admin-token', '<上面那个值>');
+```
+
+直接跑 `uvicorn`（不经容器）**不需要**这一步——那时请求确实来自 loopback。
+
 ## 1. 先决定一件事：谁来访问它
 
 NetMind 能改网络设备的配置。**部署之前先确认访问边界**。
 
 | 部署形态 | 配置 | 说明 |
 |---|---|---|
-| 只在本机用 | 不设 `NETMIND_ADMIN_TOKEN` | 此时**只有本机**能访问，远程一律 403。默认就是这个 |
-| 局域网共享 | **必须**设 `NETMIND_ADMIN_TOKEN` | 配了之后所有接口（含 GET）都要 `Authorization: Bearer <token>` |
+| 直接跑 uvicorn，只在本机用 | 不设 `NETMIND_ADMIN_TOKEN` | 请求确实来自 `127.0.0.1`，远程一律 403。默认就是这个 |
+| **用 docker compose** | **必须**设 `NETMIND_ADMIN_TOKEN` | 见第 0 节：端口映射后对端是网关 IP，不是 loopback |
+| 局域网共享 | 同上 | 配了之后所有接口（含 GET）都要 `Authorization: Bearer <token>` |
 | 多人看、少数人改 | 管理员 + `NETMIND_READONLY_TOKEN` | 只读凭据可读全部接口，写操作一律 403 |
 | 对外暴露 | 同上，**且**必须走 HTTPS 反代 | 见第 5 节 |
 
