@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 31,
+  "cycle": 32,
   "phase": "plan",
-  "updated": "2026-10-03T21:38:07+08:00",
+  "updated": "2026-10-03T22:03:39+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -24,7 +24,7 @@
     "gates_total": 22,
     "gates_passed": 34,
     "gates_warned": 0,
-    "src_lines": 14304,
+    "src_lines": 14332,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -398,6 +398,18 @@
       "gates_passed": 34,
       "gates_warned": 0,
       "src_lines": 14304,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 32,
+      "tests_collected": 272,
+      "gates_total": 22,
+      "gates_passed": 34,
+      "gates_warned": 0,
+      "src_lines": 14332,
       "generic_names": 195,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -887,6 +899,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "docs-vs-reality",
+      "title": "同一句错话在三个文档里各留了一份 —— 门禁只盯一份产生了虚假安全感",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -1161,6 +1181,14 @@
       "shipped": "全量扫 schema 里带「乐观默认值」的字段（36 处），逐个查构造点是否漏传，找出真命中：异常分支的置信度早已改成按证据推导，但 `return Diagnosis(type='normal')` 漏了——吃到 schema 默认的 confidence=0.9。**全项目最常出现的诊断结论，恰恰是唯一不经过任何推导的那一个。**三个后果全部实测确认：① 样本量 1 与 10 给出同一个 0.9——「依据变多」不体现在结论上；② 读数贴阈值（45ms vs 50ms 门限）与读数极低（1ms）同样给 0.9；③ sim 折扣在正常分支**完全没生效**——模拟数据说「一切正常」和真实数据一样自信。一个样本都没有时也报 0.9。新增 _normal_confidence()：按「离阈值多远 × 样本量 × 数据是否真实」推导。实测：1 真实样本 1ms → 0.651；10 真实样本 1ms → 0.892；10 真实样本 45ms → 0.54；10 模拟样本 1ms → 0.535（折扣生效）；无样本 → 0.0。补 5 个测试（267→272）。新增门禁 no-unearned-confidence 锁死四种情形，已注入「改回吃默认值」的反例验证（报「样本量 1→10，置信度没变（0.9）」）。**扫出来不等于有问题**：另两处经核实是误报——store.py 的 TelemetrySnapshot(**v) 是解包且 model_dump 总会写全字段；VerificationReport 五个字段其实都算了，只是默认值没被用到。过程中门禁自己也写错过一次：diagnose([]) 会回退到 STORE.telemetry[-3:]，而门禁进程里有种子数据，「无样本」那条一开始没隔离 store，测出来是 congestion/0.305。已隔离。门禁 33→34 条全绿，去 AI 味门 0 命中。",
       "at": "2026-10-03T21:38:07+08:00",
       "based_on": "b5104c1"
+    },
+    {
+      "cycle": 32,
+      "id": "docs-vs-reality",
+      "title": "同一句错话在三个文档里各留了一份 —— 门禁只盯一份产生了虚假安全感",
+      "shipped": "扫 API.md 与实际路由（以 OpenAPI 为准，120 条）：先误报 10 条「文档有、实际无」，逐条核实发现多数是路径参数省略（`/api/deploy` vs `/api/deploy/{execution_id}`）与我匹配器取首个造成的假阳性——**扫出来不等于有问题**。真正的命中是认证范围那句：实测 /api/system/status、/api/dashboard、/api/telemetry/latest 在配 token 后不带凭据均 401，而文档说只保护非 GET。**同一句错话在 SECURITY.md / docs/API.md / README.md 各留了一份**，而我上一轮的门禁只查 SECURITY.md。**门禁覆盖了它检查的那份，并不代表别的文档是对的**——一个只盯单文件的门禁会让人产生「这类问题已收口」的错觉，比没有门禁更危险。现把 `security-doc-matches-behavior` 扩到全部客户可见文档（README / SECURITY / CHANGELOG / docs/*.md），任一份出现该错误说法即拦；已用「在第三份文档 DEPLOY.md 里塞回 non-GET」的反例验证。三处文档同步改对，API.md 另补只读凭据说明与「本文是主流程摘要、/openapi.json 才是权威」（实测本文覆盖 65/120 条路由）。过程中自己踩了一次：给 API.md 加的「此前说 non-GET 是错的」自注本身含 non-GET，触发了检查——写「这里曾经错过」也会让检查命中，已把自注删掉，历史留在 CHANGELOG。门禁仍 34 条全绿，后端 272、去 AI 味门 0 命中。",
+      "at": "2026-10-03T22:03:39+08:00",
+      "based_on": "67b09bb"
     }
   ],
   "retro": [
@@ -1635,6 +1663,22 @@
       "root_cause": "反复出现的缺陷形态是「默认值被当成观测值」：面板的 sla=98、状态端点的 healthy=true、自愈的 success 默认 True、置信度硬编码 .98/.92/.88——都是同一类。这轮做了一次全量扫（36 处带乐观默认值的 schema 字段），找到漏网的最后一个：`return Diagnosis(type='normal')`。**全项目最常出现的诊断结论，恰恰是唯一不经过任何推导的那一个。**三个后果都实测过：样本量 1 与 10 给同一个 0.9；读数贴阈值（45ms）与极低（1ms）给同一个 0.9；sim 折扣在正常分支完全没生效，模拟数据说「一切正常」和真实数据一样自信。",
       "fix": "新增 _normal_confidence()：按「离阈值多远 × 样本量 × 数据是否真实」推导；无样本时返回 confidence=0.0 并在 evidence 里说明为什么判不了。实测：1 真实样本 1ms → 0.651；10 真实样本 1ms → 0.892；10 真实样本 45ms → 0.54；10 模拟样本 1ms → 0.535（折扣生效）。门禁 no-unearned-confidence 锁死四种情形。扫出来的另两处经核实是误报：store.py 的 TelemetrySnapshot(**v) 是解包，model_dump 总会写全字段；VerificationReport 五个字段其实都算了。——扫出来不等于有问题，核实过才记。",
       "at": "2026-10-03T21:05:00+08:00"
+    },
+    {
+      "cycle": 32,
+      "gate": "security-doc-matches-behavior",
+      "on_fail": "block",
+      "root_cause": "上一轮修 SECURITY.md 的认证范围时，我把它当成「这一处的事」——改完、加门禁、收工。但同一句错误说法在 docs/API.md 与 README.md 的环境变量表里各留了一份。**门禁覆盖了它检查的那份，并不代表别的文档是对的。**一个只盯着单个文件的门禁，会让人产生「这类问题已经收口」的错觉——这比没有门禁更危险。",
+      "fix": "门禁扩到全部客户可见文档：README / SECURITY / CHANGELOG / docs/*.md，任一份出现「配 token 后只保护非 GET」即拦。已用「在第三份文档里塞回 non-GET」的反例验证（DEPLOY.md 被抓到）。三处文档同步改对，并补上只读凭据与「/openapi.json 才是权威」的说明。过程中自己踩了一次：给 API.md 加的「此前说 non-GET 是错的」自注本身含 non-GET，触发了检查——写「这里曾经错过」也会让检查命中。已把自注删掉，历史留在 CHANGELOG。",
+      "at": "2026-10-03T21:45:00+08:00"
+    },
+    {
+      "cycle": 32,
+      "gate": "security-doc-matches-behavior",
+      "on_fail": "block",
+      "root_cause": "门禁要区分「断言现状」与「提及历史」。给 API.md 加的「此前说 non-GET 是错的」自注、以及 CHANGELOG 里记录修正史的那条，都因为含有 non-GET 被拦下。若照字面处理，就该把修正记录从变更日志里删掉——那更糟。门禁比它要防的东西更笨，就会被人绕过。",
+      "fix": "加 CORRECTION 词表：含「错误/误/曾/此前/原先/改/修正/wrong/earlier/fixed」的行视为在讲历史，放行；其余含 non-GET + token 的行视为断言，拦下。已双向验证：CHANGELOG 的修正记录放行、README 塞回断言被拦。",
+      "at": "2026-10-03T21:55:00+08:00"
     }
   ],
   "gates_total": 34,
@@ -1643,9 +1687,9 @@
     "title": "App.jsx 1885 行解耦为 pages/components/hooks",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T21:38:00+08:00"
+    "planned_at": "2026-10-03T22:03:31+08:00"
   },
-  "based_on": "b5104c1",
+  "based_on": "67b09bb",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

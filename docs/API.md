@@ -1,8 +1,10 @@
 # NetMind API Summary
 
-Auth: set `NETMIND_ADMIN_TOKEN` to require `Authorization: Bearer <token>` on all non-GET requests. Unset (default) = open local mode.
+Auth: with no token set, only loopback may reach the API (remote requests get 403). Set `NETMIND_ADMIN_TOKEN` to require `Authorization: Bearer <token>` on **every** method, **including GET** — not just writes. A second tier, `NETMIND_READONLY_TOKEN`, admits GET/HEAD/OPTIONS and refuses writes with 403. `/healthz` is the only public path. (`/openapi.json` is the authority on this.)
 
 Interactive docs: `/docs` · OpenAPI: `/openapi.json`
+
+This file is a **summary of the main flows**, not the complete surface — it lists roughly half the routes. `/openapi.json` is authoritative and always complete; if an endpoint is not listed here, check there before concluding it does not exist.
 
 ## System
 GET `/` — service info

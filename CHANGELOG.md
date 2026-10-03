@@ -4,6 +4,15 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Fixed
+- **「配 token 后只保护非 GET 请求」这句错误说法在三个文档里各留了一份**。
+  实际是所有方法含 GET 都要认证：`/api/system/status`、`/api/dashboard`、
+  `/api/telemetry/latest` 实测不带 token 均 401。`SECURITY.md` 上一轮已改，
+  `docs/API.md` 与 `README.md` 的环境变量表原封不动。门禁 `security-doc-matches-behavior`
+  原先只查 `SECURITY.md`——**门禁覆盖了它检查的那份，并不代表别的文档是对的**。
+  现扩到全部客户可见文档（README / SECURITY / CHANGELOG / docs/*.md），
+  已用「在第三份文档里塞回 non-GET」的反例验证
+
+### Fixed
 - **「一切正常」是全项目唯一不经过推导的诊断结论**。异常分支的置信度早已改成按
   证据推导，但 `return Diagnosis(type='normal')` 漏了——吃到 schema 默认的
   confidence=0.9。实测三个后果：样本量 1 与 10 给出同一个 0.9；读数贴阈值

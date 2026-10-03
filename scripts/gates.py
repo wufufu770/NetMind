@@ -457,6 +457,34 @@ try:
     assert 'bypass the "dangerous command" gate by design' not in doc, \
         'SECURITY.md 仍写着「回滚绕过危险操作门」——与实现相反'
     STORE.owned_routes.clear()
+
+    # 3) 认证范围：**每一份客户可见文档**都要说对，不能只查 SECURITY.md。
+    # 上一轮修了 SECURITY.md 就以为这事结了，`docs/API.md` 与 `README.md` 的
+    # 环境变量表各留了一份。门禁覆盖了它检查的那份，并不代表别的文档是对的。
+    #
+    # 只拦**断言**，不拦**提及**：CHANGELOG 里写「此前说 non-GET 是错的」是在
+    # 记录修正史，若一并拦下，就得把修正记录从变更日志里删掉——那更糟。
+    CORRECTION = ('错误', '误', '曾', '此前', '原先', '改', '修正',
+                  'wrong', 'earlier', 'fixed', 'was ', 'used to')
+    visible = ([ROOT / 'SECURITY.md', ROOT / 'README.md', ROOT / 'CHANGELOG.md']
+               + sorted((ROOT / 'docs').glob('*.md')))
+    stale = []
+    for dpath in visible:
+        if not dpath.exists():
+            continue
+        for line in dpath.read_text(encoding='utf-8').splitlines():
+            if not (('non-GET' in line or '非 GET' in line)
+                    and ('token' in line or 'Token' in line)):
+                continue
+            if any(w in line for w in CORRECTION):
+                continue          # 在讲「这里曾经错」，不是在断言现状
+            stale.append(f'{dpath.relative_to(ROOT)}: {line.strip()[:100]}')
+    assert not stale, (
+        '这些客户可见文档仍断言「配 token 后只保护非 GET 请求」——'
+        '实际所有方法含 GET 都要认证：\n    ' + '\n    '.join(stale))
+    api_doc = (ROOT / 'docs' / 'API.md').read_text(encoding='utf-8')
+    assert 'including GET' in api_doc, \
+        'docs/API.md 未写明「配了 token 后 GET 同样需要认证」'
 finally:
     for k, v in _saved.items():
         if v is None:

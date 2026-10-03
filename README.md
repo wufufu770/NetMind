@@ -101,7 +101,7 @@ netmind diagnose topo.yml --llm                         # + LLM 根因分析（�
 |---|---|---|
 | `NETMIND_DRIVER` | `simulation` | `simulation` \| `ssh` \| `netconf` |
 | `NETMIND_ENABLE_REAL_COMMANDS` | `false` | Write-execution gate for real devices |
-| `NETMIND_ADMIN_TOKEN` | – | Bearer token for all non-GET requests |
+| `NETMIND_ADMIN_TOKEN` | – | Bearer token for **every** method, GET included |
 | `NETMIND_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 | `NETMIND_SSH_HOST/_PORT/_USERNAME/_PASSWORD/_DEVICE_TYPE` | – | netmiko connection |
 | `NETMIND_NAPALM_DRIVER` | SSH device type | napalm driver for collection |
