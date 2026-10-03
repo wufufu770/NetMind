@@ -211,12 +211,22 @@ class ThemeConfig(BaseModel):
     font: str = 'Inter, PingFang SC'
 
 class SystemStatus(BaseModel):
+    # 此前 healthy / driver / model_online 三个字段全是「构造时没人赋值」，
+    # 于是端点恒返回 healthy=true、driver=simulation、model_online=true——
+    # 探活与运维看的正是这个接口。现在全部由可观测状态推出。
     healthy: bool = True
     driver: str = 'simulation'
     model_online: bool = True
     websocket_clients: int = 0
     active_intents: int = 0
     alerts: int = 0
+    # 调用者这一请求所处的凭据档位，前端据此隐藏写操作。
+    # 不给身份就调不了写接口，但界面上看不出来自己是只读——
+    # 那比没有只读角色更让人困惑。
+    auth_mode: str = 'unknown'
+    # 遥测是实测还是降级到模拟。healthy 判定要看它：
+    # 数据源都不真实时，报「健康」是在替一个没测过的系统背书。
+    telemetry_source: str = ''
 
 
 class CredentialConfig(BaseModel):

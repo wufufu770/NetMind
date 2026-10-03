@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import os
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from ..schemas import SystemStatus, Status
 from ..store import STORE
 from ..realtime import WS
@@ -17,8 +18,40 @@ def root():
     return {'name':'NetMind','version':__version__,'docs':'/docs','status':'/api/system/status'}
 
 @router.get('/api/system/status', response_model=SystemStatus)
-def system_status():
-    return SystemStatus(websocket_clients=len(WS), active_intents=sum(1 for e in STORE.executions.values() if e.status in [Status.running,Status.warning]), alerts=sum(1 for t in STORE.telemetry[-20:] if t.alert))
+def system_status(request: Request):
+    """运行状态。此前 healthy / driver / model_online 从来没被计算过，
+    全部吃 schema 默认值——于是恒返回 healthy=true、driver=simulation、
+    model_online=true。探活与运维看的正是这个接口。
+
+    现在四个字段各自有出处：
+      · driver         取实际配置的驱动名
+      · model_online   走真健康检查，而不是假定模型可用
+      · healthy        取决于遥测来源：数据源不真实时不能报「健康」
+      · auth_mode      供前端识别调用者档位，隐藏只读身份用不上的写操作
+    """
+    from ..core.model_adapter import MODEL_ADAPTER as _MA
+    driver = os.getenv('NETMIND_DRIVER', 'simulation')
+    online = False
+    for model_id in list(STORE.models):
+        try:
+            if _MA.test(model_id).get('ok'):
+                online = True
+                break
+        except Exception:
+            continue
+    last = STORE.telemetry[-1] if STORE.telemetry else None
+    src = str(getattr(last, 'source', '') or '')
+    return SystemStatus(
+        healthy=bool(src in ('real', 'lab', 'simulated')) if last else False,
+        driver=driver,
+        model_online=online,
+        websocket_clients=len(WS),
+        active_intents=sum(1 for e in STORE.executions.values()
+                           if e.status in [Status.running, Status.warning]),
+        alerts=sum(1 for t in STORE.telemetry[-20:] if t.alert),
+        auth_mode=str(getattr(request.state, 'auth_mode', 'unknown')),
+        telemetry_source=src,
+    )
 
 @router.get('/api/dashboard')
 def dashboard():

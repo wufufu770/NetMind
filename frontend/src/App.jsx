@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { compactLabel, displayToolName, executionLabel, localizeJsonText } from './lib/format.js';
 import { authHeaders, describeAuthFailure } from './lib/auth.js';
-import { confidenceText, healthRing, healthScore, metricTone, metricValue, summaryCell } from './lib/display.js';
+import { confidenceText, healthRing, healthScore, isReadonly, metricTone, metricValue, summaryCell, writeAction } from './lib/display.js';
 import './style.css';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -280,6 +280,7 @@ function Shell() {
   const [settings, updateSettings] = useLocalSettings();
   const [health, setHealth] = useState(null);
   const [modelHealth, setModelHealth] = useState(null);
+  const [authMode, setAuthMode] = useState('unknown');
   const [globalRefresh, setGlobalRefresh] = useState(0);
   const title = pageDefs.find((p) => p[0] === page) || pageDefs[0];
 
@@ -287,6 +288,8 @@ function Shell() {
     try {
       const data = await request('/api/system/status');
       setHealth(data);
+      // auth_mode 是服务端中间件判定的真实档位，不靠前端猜
+      setAuthMode(data.auth_mode || 'unknown');
       toastMessage(setToast, data.healthy ? 'success' : 'warn', data.healthy ? '全网健康检查通过' : '检测到网络告警');
     } catch (err) {
       toastMessage(setToast, 'error', `健康检查失败：${err.message}`);
@@ -365,12 +368,15 @@ function Shell() {
           </div>
         </header>
         <section className="page-body">
+          {isReadonly(authMode) && (
+            <InlineError text={`当前为只读身份（auth_mode=${authMode}）。读操作不受限，下发与变更类操作需要管理员凭据 NETMIND_ADMIN_TOKEN，直接点击会被服务端以 403 拒绝。`} />
+          )}
           {page === 'dashboard' && <Dashboard setPage={setPage} setToast={setToast} refreshKey={globalRefresh} />}
           {page === 'intent' && <IntentConsole setPage={setPage} setToast={setToast} />}
           {page === 'agents' && <Agents setToast={setToast} />}
           {page === 'verification' && <Verification setToast={setToast} />}
           {page === 'workflow' && <WorkflowPage setToast={setToast} />}
-          {page === 'telemetry' && <Telemetry setToast={setToast} />}
+          {page === 'telemetry' && <Telemetry setToast={setToast} authMode={authMode} />}
           {page === 'logs' && <Logs setToast={setToast} refreshKey={globalRefresh} />}
           {page === 'reports' && <Reports setToast={setToast} />}
           {page === 'features' && <FeatureAcceptance setPage={setPage} setToast={setToast} />}
@@ -1189,7 +1195,7 @@ function WorkflowCanvas({ workflow, graph }) {
   );
 }
 
-function Telemetry({ setToast }) {
+function Telemetry({ setToast, authMode }) {
   const [snapshot, setSnapshot] = useState(null);
   const [history, setHistory] = useState([]);
   const [diagnosis, setDiagnosis] = useState(null);
@@ -1285,6 +1291,9 @@ function Telemetry({ setToast }) {
 
   const heal = async () => {
     try {
+      if (writeAction(authMode, '触发自愈').disabled) {
+        return toastMessage(setToast, 'warn', '当前是只读身份，触发自愈需要管理员凭据');
+      }
       const data = await request('/api/telemetry/heal', { method: 'POST' });
       toastMessage(setToast, data.success ? 'success' : 'warn', data.summary || '自愈完成');
       await load();

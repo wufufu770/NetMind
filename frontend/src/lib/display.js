@@ -63,3 +63,25 @@ export function confidenceText(value, placeholder = '—') {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return placeholder;
   return `${Math.round(Number(value) * 100)}%`;
 }
+
+/** 只读身份下该不该禁用写操作。
+ *
+ * 服务端早就按凭据档位拦了写操作（`NETMIND_READONLY_TOKEN` → 403），
+ * 但界面看不出自己是只读：按钮照常可点，点了才知道不行。
+ * 「点了才知道」比「没有这个按钮」更让人困惑——他会以为是系统故障。
+ *
+ * 判断依据是 `/api/system/status` 的 `auth_mode`，那是服务端在中间件里
+ * 判定的真实档位，不是前端自己猜的。
+ */
+export function isReadonly(authMode) {
+  return authMode === 'readonly-token';
+}
+
+/** 写操作按钮的呈现。返回 disabled / title（悬停说明为什么点不了）。 */
+export function writeAction(authMode, label = '该操作') {
+  if (!isReadonly(authMode)) return { disabled: false, title: '' };
+  return {
+    disabled: true,
+    title: `当前是只读身份，${label}需要管理员凭据（NETMIND_ADMIN_TOKEN）`,
+  };
+}

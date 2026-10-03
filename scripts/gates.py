@@ -108,6 +108,72 @@ finally:
 """,
     ),
     Gate(
+        id='system-status-is-measured',
+        desc='运行状态端点的字段必须由可观测状态算出，不得吃 schema 默认值',
+        on_fail='block',
+        check=r"""
+# `/api/system/status` 是探活与运维看的接口。此前 healthy / driver / model_online
+# 三个字段**从来没有被任何代码赋值**——全吃 schema 默认值，于是端点恒返回
+# healthy=true、driver=simulation、model_online=true。配了 SSH 驱动、模型离线、
+# 压根没采到数据，它都照报「健康」。
+#
+# 另外 auth_mode 缺失会让前端认不出只读身份：只读用户看到可点的下发按钮，
+# 点了才知道不行——「点了才知道」比没有只读角色更让人困惑。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+_keys = ('NETMIND_DRIVER', 'NETMIND_ADMIN_TOKEN', 'NETMIND_READONLY_TOKEN',
+         'NETMIND_ALLOW_ANON_READONLY', 'NETMIND_TRUST_PROXY')
+_saved = {k: os.environ.get(k) for k in _keys}
+try:
+    from app.core import access as _access            # noqa: E402
+    from app.schemas import TelemetrySnapshot         # noqa: E402
+    from app.store import STORE                       # noqa: E402
+    from fastapi.testclient import TestClient         # noqa: E402
+    from app.main import app as fastapi_app           # noqa: E402
+
+    for k in _keys:
+        os.environ.pop(k, None)
+    _access._client_host = lambda request: '203.0.113.9'
+    with TestClient(fastapi_app) as c:
+        # 1) driver 跟着配置走，而不是永远 simulation
+        os.environ['NETMIND_DRIVER'] = 'ssh'
+        assert c.get('/api/system/status', headers={'Authorization': 'Bearer x'}).status_code in (200, 401, 403)
+        os.environ['NETMIND_ADMIN_TOKEN'] = 'adm'
+        os.environ['NETMIND_READONLY_TOKEN'] = 'ro'
+        assert c.get('/api/system/status',
+                     headers={'Authorization': 'Bearer adm'}).json()['driver'] == 'ssh', \
+            'driver 字段没跟着 NETMIND_DRIVER 走'
+
+        # 2) model_online 不是写死的 true
+        STORE.models.clear()
+        assert c.get('/api/system/status',
+                     headers={'Authorization': 'Bearer adm'}).json()['model_online'] is False, \
+            '一个模型都没配却报 model_online=true——该字段仍是默认值'
+
+        # 3) healthy 取决于遥测有无：没采到数据不报健康
+        STORE.telemetry.clear()
+        s0 = c.get('/api/system/status', headers={'Authorization': 'Bearer adm'}).json()
+        assert s0['healthy'] is False, '没有任何遥测却报 healthy=true'
+        STORE.record_telemetry(TelemetrySnapshot(latency_ms=1.2, packet_loss=0.0,
+                                                 throughput_mbps=50, alert=False, source='real'))
+        s1 = c.get('/api/system/status', headers={'Authorization': 'Bearer adm'}).json()
+        assert s1['healthy'] is True, '有真实遥测却报不健康'
+        assert s1['telemetry_source'] == 'real', '没报出遥测来源，无法判断数据真假'
+
+        # 4) auth_mode 如实反映调用者档位——前端靠它识别只读身份
+        ro = c.get('/api/system/status', headers={'Authorization': 'Bearer ro'}).json()
+        adm = c.get('/api/system/status', headers={'Authorization': 'Bearer adm'}).json()
+        assert ro['auth_mode'] == 'readonly-token', f"只读凭据的 auth_mode 是 {ro['auth_mode']}"
+        assert adm['auth_mode'] == 'token', f"管理员凭据的 auth_mode 是 {adm['auth_mode']}"
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+""",
+    ),
+    Gate(
         id='readonly-credential-is-enforced',
         desc='只读凭据能读不能写；写操作须 403（凭据有效但权限不足）而非 401',
         on_fail='block',

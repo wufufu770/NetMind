@@ -9,6 +9,15 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
   的决策点，此前散在 `App.jsx` 里一行测试都没有。补 20 个用例，前端 12→30
 
 ### Fixed
+- **`/api/system/status` 的三个字段从不是测出来的**。`healthy` / `driver` / `model_online`
+  从未被任何代码赋值，全吃 schema 默认值——于是这个探活与运维真正会看的接口恒返回
+  `healthy=true` / `driver=simulation` / `model_online=true`：配了 SSH 驱动、模型离线、
+  压根没采到数据，都照报「健康」。现四个字段各自有出处，并新增 `telemetry_source`
+  与 `auth_mode`
+- **只读用户在界面上看不出自己是只读**。服务端早已按档位拦写操作（403），
+  但按钮照常可点，点了才知道不行——那比没有只读角色更让人困惑。
+  现读 `/api/system/status` 的 `auth_mode` 识别身份并给出明确提示
+
 - **配了 `NETMIND_ADMIN_TOKEN` 之后网页面板全线 401**（实测确认）。前端 `request()`
   发的是 `X-NetMind-Admin` 自定义头，而后端只读 `Authorization: Bearer`——
   于是 `docs/DEPLOY.md` 第 1 节推荐的部署方式下，整个界面不可用。
