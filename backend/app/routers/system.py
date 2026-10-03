@@ -22,8 +22,12 @@ def system_status():
 
 @router.get('/api/dashboard')
 def dashboard():
-    snap=TELEMETRY.sample()
-    return {'metrics':{'sla':98,'latency_ms':snap.latency_ms,'packet_loss':snap.packet_loss,'active_intents':2}, 'risks':[{'title':'ACL 冲突需人工复核','severity':'warning'},{'title':'访客网络接近阈值','severity':'warning'},{'title':'备用路径已优化','severity':'success'}], 'active_intents':['答辩保障 #04','访客隔离 #05'], 'events':[l.model_dump(mode='json') for l in STORE.logs[-8:]], 'topology':TOPOLOGY.snapshot()}
+    # 数字全部由真实状态推出，推不出的返回 null 并带原因（见 core/dashboard.py）。
+    # 此前这里是写死的 sla:98 / active_intents:2 和三条固定风险文案，读者
+    # 无从判断这些数字是测出来的还是编的。
+    from ..core.dashboard import build_dashboard
+    return build_dashboard(executions=STORE.executions.values(), telemetry=STORE.telemetry,
+                           logs=STORE.logs, topology=TOPOLOGY.snapshot())
 
 @router.get('/api/readiness')
 def readiness():
@@ -44,8 +48,46 @@ def model_health_check():
 
 @router.post('/api/system/ai-recovery-review')
 def ai_recovery_review():
-    recent=list(STORE.executions.values())[-10:]
-    return {'reviewed': len(recent), 'differences': [], 'message':'AI 恢复后复核完成：当前仿真构建中离线规则结果与模型结果无冲突。'}
+    """复核「模型恢复后结果与离线规则是否冲突」。
+
+    原实现直接返回 `differences: []` 和一句「复核完成，无冲突」——它什么都没
+    比较，那句话因此是编的。现在真跑一遍规则引擎再比；引擎跑不了就如实说跑不了。
+    """
+    from ..core.workflow import ORCHESTRATOR
+    recent = [e for e in list(STORE.executions.values())[-10:] if getattr(e, 'intent_text', '')]
+    compared, differences, undecidable = [], [], []
+    for e in recent:
+        try:
+            rederived = ORCHESTRATOR.parse_intent_with_agent(e.intent_text)
+        except Exception as exc:
+            undecidable.append({'execution_id': e.execution_id,
+                                'reason': f'{type(exc).__name__}: {str(exc)[:80]}'})
+            continue
+        before = getattr(e.intent, 'model_dump', lambda: None)()
+        after = rederived[0].model_dump() if hasattr(rederived, '__getitem__') else None
+        compared.append(e.execution_id)
+        if before and after and before != after:
+            differences.append({'execution_id': e.execution_id,
+                                'recorded': before, 'rederived': after})
+    verdict = ('differences-found' if differences
+               else 'no-difference' if compared and not undecidable
+               else 'indeterminate' if undecidable or not compared
+               else 'partial')
+    return {
+        'reviewed': len(recent),
+        'compared': len(compared),
+        'differences': differences,
+        'undecidable': undecidable,
+        'verdict': verdict,
+        'message': {
+            'differences-found': f'发现 {len(differences)} 处结果不一致，需人工复核',
+            'no-difference': f'逐条重跑 {len(compared)} 个意图，规则输出与记录一致',
+            'partial': f'比对 {len(compared)} 条，{len(undecidable)} 条无法判定——'
+                       f'未比对的部分不算「无冲突」',
+            'indeterminate': '无可比对的执行记录，复核未进行',
+        }[verdict],
+    }
+
 
 @router.get('/api/notifications')
 def notifications(limit: int=20):
@@ -55,15 +97,23 @@ def notifications(limit: int=20):
             rows.append({'id': f'noti-{abs(hash(l.message))%100000}', 'level': l.level, 'source': l.source, 'message': l.message, 'execution_id': l.execution_id, 'ts': l.ts})
     return rows[-limit:]
 
+
 @router.websocket('/ws/events')
 async def ws_events(ws: WebSocket):
     await ws.accept(); WS.append(ws)
+    # 用 finally 而不是只捕 WebSocketDisconnect：原来只捕那一种异常，
+    # 发送失败或 TELEMETRY.sample() 抛错时控制流直接抛出函数，ws 永远留在
+    # WS 列表里。长跑进程里客户端反复重连，列表只增不减——
+    # 而 /api/system/status 正是拿 len(WS) 当「在线客户端数」报的。
     try:
         while True:
             snap=TELEMETRY.sample()
             await ws.send_json({'type':'telemetry','data':snap.model_dump(mode='json')})
             if snap.alert:
-                await ws.send_json({'type':'notification','data':{'severity':'warning','message':'SLA threshold exceeded'}})
+                await ws.send_json({'type':'notification','data':{'severity':'warning','message':'telemetry alert: SLA threshold exceeded'}})
             await asyncio.sleep(1)
     except WebSocketDisconnect:
-        if ws in WS: WS.remove(ws)
+        pass
+    finally:
+        if ws in WS:
+            WS.remove(ws)

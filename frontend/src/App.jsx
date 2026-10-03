@@ -451,7 +451,10 @@ function Dashboard({ setPage, setToast, refreshKey }) {
   const topology = data?.topology || { nodes: [], links: [] };
   const risks = (data?.risks || []).filter((risk) => risk.severity !== 'success');
   const events = data?.events || [];
-  const healthScore = metrics.sla || (metrics.packet_loss < 0.01 ? 96 : 82);
+  // 健康分没有实测来源：SLA 达成率需要事先约定的 SLO 目标，项目里没有这个
+  // 目标（后端因此返回 null）。原来这里在 sla 为空时用丢包率反推 96 / 82，
+  // 等于凭一个阈值编一个最显眼的数字。算不出来就显示 --。
+  const healthScore = Number.isFinite(Number(metrics.sla)) ? Number(metrics.sla) : null;
   const alertCount = risks.length;
 
   return (
@@ -473,7 +476,7 @@ function Dashboard({ setPage, setToast, refreshKey }) {
 
       {error && <InlineError text={error} />}
       <div className="metrics-grid compact three">
-        <StatCard label="SLA 达成率" value={metrics.sla} unit="%" tone="ok" hint="进入策略中心" icon={Gauge} onClick={() => setPage('verification')} />
+        <StatCard label="SLA 达成率" value={metrics.sla} unit="%" tone="neutral" hint={metrics.sla_reason || '未定义 SLO 目标'} icon={Gauge} onClick={() => setPage('verification')} />
         <StatCard label="端到端延迟" value={metrics.latency_ms} unit="ms" tone={metrics.latency_ms > 50 ? 'warn' : 'ok'} subMetrics={`丢包率 ${((Number(metrics.packet_loss || 0)) * 100).toFixed(2)}% · 吞吐 ${metrics.throughput_mbps ?? '--'} Mbps`} icon={Activity} onClick={() => setPage('telemetry')} />
         <StatCard label="活跃告警" value={alertCount} tone={alertCount ? 'warn' : 'ok'} hint={alertCount ? '需要处理' : '暂无异常'} icon={AlertTriangle} onClick={() => setPage(alertCount ? 'verification' : 'logs')} />
       </div>
@@ -938,7 +941,9 @@ function Verification({ setToast }) {
         const plan = await request(`/api/deploy/${selected.execution_id}/rollback-plan`);
         rollbackReady = Array.isArray(plan.rollback_commands) && plan.rollback_commands.length > 0;
       } catch { /* 计划获取失败时按 false 展示 */ }
-      setManualResult({ deploy: data, passed: data.success, reachable: true, sla_feasible: true, security_passed: securityPassed, rollback_ready: rollbackReady, sla_confidence: data.success ? 1 : .4 });
+            // 不给 sla_feasible / sla_confidence：下发结果里没有 SLA 依据，
+      // 写死 true 与 1 会让「未知」显示成「可行 100%」。
+      setManualResult({ deploy: data, passed: data.success, reachable: true, security_passed: securityPassed, rollback_ready: rollbackReady });
       toastMessage(setToast, data.success ? 'success' : 'warn', data.success ? '配置已通过 TransactionManager 下发' : (data.rollback_complete === false ? '下发失败，自动回滚未全部完成' : '下发失败，已尝试回滚'));
     } catch (err) {
       toastMessage(setToast, 'error', `下发失败：${err.message}`);
@@ -949,7 +954,7 @@ function Verification({ setToast }) {
     if (!selected?.execution_id) return toastMessage(setToast, 'warn', '请选择执行记录');
     try {
       const data = await request(`/api/deploy/${selected.execution_id}/rollback`, { method: 'POST' });
-      setManualResult({ rollback: data, passed: data.success, reachable: true, sla_feasible: true, security_passed: data.success, rollback_ready: data.success, sla_confidence: data.success ? 1 : .4 });
+            setManualResult({ rollback: data, passed: data.success, reachable: true, security_passed: data.success, rollback_ready: data.success });
       toastMessage(setToast, data.success ? 'success' : 'warn', data.success ? 'RollbackManager 已执行原子回滚' : '回滚执行存在失败命令');
     } catch (err) {
       toastMessage(setToast, 'error', `回滚失败：${err.message}`);
@@ -960,7 +965,9 @@ function Verification({ setToast }) {
     if (!selected?.execution_id) return toastMessage(setToast, 'warn', '请选择执行记录');
     try {
       const data = await request(`/api/deploy/${selected.execution_id}/rollback-plan`);
-      setManualResult({ rollback_plan: data, passed: true, reachable: true, sla_feasible: true, security_passed: true, rollback_ready: true, sla_confidence: 1 });
+            // 只知道「计划存在」：它过不过得了安全门、能不能真执行，都还没验证。
+      // 原来这里 security_passed/rollback_ready/sla_confidence 全写死为真。
+      setManualResult({ rollback_plan: data, passed: true, reachable: true, rollback_ready: Array.isArray(data.rollback_commands) && data.rollback_commands.length > 0 });
       toastMessage(setToast, 'success', '回滚计划已生成');
     } catch (err) {
       toastMessage(setToast, 'error', `回滚计划失败：${err.message}`);
@@ -1207,9 +1214,17 @@ function Telemetry({ setToast }) {
 
   const predictSla = async () => {
     try {
-      const data = await request('/api/telemetry/predict-sla', { method: 'POST', body: { business: 'video_meeting', description: '前端 SLA 预测', target: { src: 'teacher_terminal', dst: 'meeting_server', traffic_type: 'video' }, sla: { latency_ms: 50, packet_loss: 0.01, bandwidth_mbps: 20 }, constraints: {} } });
-      setPrediction(data);
-      toastMessage(setToast, data.feasible ? 'success' : 'warn', data.feasible ? 'SLA 历史均值预测可行' : 'SLA 预测不可行');
+      const sla = { latency_ms: 50, packet_loss: 0.01, bandwidth_mbps: 20 };
+      const data = await request('/api/telemetry/predict-sla', { method: 'POST', body: { business: 'video_meeting', description: '前端 SLA 预测', target: { src: 'teacher_terminal', dst: 'meeting_server', traffic_type: 'video' }, sla, constraints: {} } });
+      setPrediction({ ...data, sla });
+      // feasible 为 null 表示「没给目标，判不了」。原来这里写的是
+      // data.feasible ? … : …，而 null 是 falsy —— 于是「无法判定」会被
+      // 显示成「预测不可行」，把「没结论」说成了否定结论。
+      if (data.feasible === null || data.feasible === undefined) {
+        toastMessage(setToast, 'warn', data.message || '未提供 SLA 目标，无法判定可行性');
+      } else {
+        toastMessage(setToast, data.feasible ? 'success' : 'warn', data.feasible ? 'SLA 历史均值满足所给目标' : (data.message || 'SLA 预测不可行'));
+      }
     } catch (err) {
       toastMessage(setToast, 'error', `SLA 预测失败：${err.message}`);
     }

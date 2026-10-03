@@ -40,6 +40,98 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='dashboard-no-fabricated-numbers',
+        desc='面板数字必须来自真实状态；无数据时返回 null 而非写死的常量',
+        on_fail='block',
+        check=r"""
+# 违反 CONTRIBUTING 规则 2（No fabricated telemetry）。此前 /api/dashboard 的
+# metrics 全是路由里的字面量：sla 恒为 98、active_intents 恒为 2，外加三条固定
+# 风险文案和两个编造的意图名。诚实表没有对应条目声明它们是模拟的——读者
+# 无从判断 98 是测出来的还是编的。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+os.environ.pop('NETMIND_ADMIN_TOKEN', None)
+os.environ.pop('NETMIND_ALLOW_ANON_READONLY', None)
+os.environ.pop('NETMIND_PROBE_TARGET', None)
+
+import app.core.access as _access                 # noqa: E402
+_access._client_host = lambda request: '127.0.0.1'
+from app.core.dashboard import build_dashboard    # noqa: E402
+from app.schemas import TelemetrySnapshot        # noqa: E402
+
+# 1) 空状态：不得冒出任何数字或占位文案
+d = build_dashboard(executions=[], telemetry=[], logs=[], topology=None)
+assert d['metrics']['latency_ms'] is None, f"空数据却报了延迟 {d['metrics']['latency_ms']}"
+assert d['metrics']['packet_loss'] is None
+assert d['metrics']['active_intents'] == 0
+assert d['risks'] == [], '没有观测却凭空生成了风险条目'
+assert d['active_intents'] == [], '没有执行却凭空生成了活跃意图'
+
+# 2) SLA 达成率没有 SLO 目标就永远不该被算出来
+assert d['metrics']['sla'] is None, '未定义 SLO 目标却给出了 SLA 达成率'
+assert d['provenance']['sla_computed'] is False
+assert d['metrics']['sla_reason'], '不提供该指标时必须说明原因'
+
+# 3) 健康遥测不该被编成风险
+quiet = build_dashboard(executions=[], logs=[], topology=None,
+                        telemetry=[TelemetrySnapshot(latency_ms=0.2, packet_loss=0.0,
+                                                    throughput_mbps=80, alert=False,
+                                                    source='real')])
+assert quiet['risks'] == [], '健康的真实遥测被编成了风险条目'
+
+# 4) 有真实遥测时，数字要能对得上
+real = build_dashboard(executions=[], logs=[], topology=None,
+                       telemetry=[TelemetrySnapshot(latency_ms=137.25, packet_loss=0.4,
+                                                    throughput_mbps=3, alert=True,
+                                                    source='real')])
+assert real['metrics']['latency_ms'] == 137.25, '面板报的延迟与 store 里的不一致'
+assert real['risks'], '有告警却没有风险条目'
+for r in real['risks']:
+    assert r.get('evidence'), f'风险「{r["title"]}」没有证据字段，无法核查'
+
+# 5) 复核接口必须有真判定字段，不能只写死一句「无冲突」
+from fastapi.testclient import TestClient        # noqa: E402
+from app.main import app                        # noqa: E402
+from app.store import STORE                     # noqa: E402
+_saved = (list(STORE.executions.values()), list(STORE.telemetry), list(STORE.logs))
+STORE.executions.clear(); STORE.telemetry.clear(); STORE.logs.clear()
+try:
+    with TestClient(app) as c:
+        r = c.post('/api/system/ai-recovery-review').json()
+        assert r.get('verdict') in ('differences-found', 'no-difference', 'partial',
+                                    'indeterminate'), \
+            f'复核没有判定字段，只有 {sorted(r)}——它到底比没比无从得知'
+        assert r['verdict'] == 'indeterminate', '空 store 下不得声称「无冲突」'
+        assert 'compared' in r and 'undecidable' in r
+
+        # 6) SLA 判定必须跟着给的目标走。原实现是 GET 无请求体、门槛写死 50ms，
+        #    而前端一直 POST 并传了完整目标——实测 POST 直接 405，GET 返回的
+        #    `achievable` 和前端读的 `feasible` 也对不上。
+        for v in (180.0, 190.0, 175.0):
+            STORE.record_telemetry(TelemetrySnapshot(latency_ms=v, packet_loss=0.001,
+                                                     throughput_mbps=90, alert=False,
+                                                     source='real'))
+        assert c.post('/api/telemetry/predict-sla', json={}).status_code == 200, \
+            'SLA 预测不接受 POST——前端一直用的就是 POST，实测会 405'
+        strict = c.post('/api/telemetry/predict-sla',
+                        json={'sla': {'latency_ms': 50}}).json()
+        relaxed = c.post('/api/telemetry/predict-sla',
+                         json={'sla': {'latency_ms': 400}}).json()
+        assert strict['feasible'] is False, '181ms 对 50ms 目标应判不可行'
+        assert relaxed['feasible'] is True, \
+            '把目标放宽到 400ms 后仍判不可行——说明门槛是写死的，没在用调用方的目标'
+        assert strict['target_used']['latency_ms'] == 50, '结论里必须带上用的哪个目标'
+        none = c.post('/api/telemetry/predict-sla', json={}).json()
+        assert none['feasible'] is None, \
+            '没给目标却下了可行性结论——那是替用户决定什么叫达标'
+finally:
+    ex, tel, logs = _saved
+    STORE.executions.update({e.execution_id: e for e in ex})
+    STORE.telemetry.clear(); STORE.telemetry.extend(tel)
+    STORE.logs.clear(); STORE.logs.extend(logs)
+""",
+    ),
+    Gate(
         id='license-present',
         desc='LICENSE 文件存在且非空（企业法务硬阻塞）',
         on_fail='block',

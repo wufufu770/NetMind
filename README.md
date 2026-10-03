@@ -39,6 +39,9 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Frontend tests | ✅ 12 cases on extracted display helpers (node built-in runner, no test framework) |
 | Default security | ✅ Safe by default — no token ⇒ loopback-only (403); token ⇒ all methods incl. GET; `/healthz` public, `/metrics` authenticated |
 | Self observability | ✅ Real — `/healthz` + `/metrics` (p50/p95/p99 per endpoint, error counts) |
+| Dashboard metrics | ✅ Derived from real state (`core/dashboard.py`); ⚠️ **no SLA attainment figure** — it needs an agreed SLO target, which the project does not define, so the field is `null` with a stated reason rather than a number; risk entries appear only when telemetry supports them, each carrying its `evidence` |
+| SLA feasibility check | ✅ Real — `POST /api/telemetry/predict-sla` judges the measured history against **the target the caller supplies**, returning which target was used and which metrics breached; with no target supplied it returns the measured averages and `feasible: null` rather than picking a threshold on the user's behalf |
+| AI recovery review | ✅ Real — re-runs the rule engine over recent executions and compares against what was recorded; entries it cannot evaluate are listed in `undecidable` and force an `indeterminate`/`partial` verdict instead of counting as "no conflict" |
 | Data durability | ✅ Atomic write (fsync + rename + dir fsync) + `scripts/data_ops.py` backup/restore/drill; drill 在 CI 里每次真跑 |
 | Rollback semantics | ✅ Covered — rollback only touches *applied* commands; cookies/routes released after rollback; security-blocked ⇒ no rollback, driver-failed ⇒ conservative rollback |
 | Post-verify rollback | ✅ Real — 下发成功但重测无改善时**真调** `TransactionManager.rollback()` 撤销（`anomaly_traffic` 路径已在真实设备验证：下发限速 → 重测无改善 → 设备侧 qdisc 读回确认已撤销）；⚠️ `congestion` 撤不回来（处置删了设备原有整形但未记录参数），此时如实报「无法自动回滚」并给出诊断命令，不拿只读检查冒充回滚 |
