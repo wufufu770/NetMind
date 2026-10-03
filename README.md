@@ -29,7 +29,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Routing state | ✅ Real — FRR/zebra 路由表（仅直连+静态，无 OSPF/BGP） |
 | Diagnosis thresholds | ⚠️ Calibrated on one lab topology; `throughput` judgement needs a baseline and is skipped when absent |
 | Post-apply verification | ✅ Real — `diagnose/closed_loop.py`; `success` 由实测前后对比推出，未重测即 `verified=False`（跑测见 `docs/closed-loop-run-report.md`） |
-| Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 路径已在真实设备端到端跑通（150.277ms→0.203ms，设备侧 qdisc `netem`→`noqueue` 读回确认）；⚠️ `link_down`/`anomaly_traffic` 路径尚未在设备上实跑，`config_error` 刻意不给自动处置（流表回滚需 NetMind cookie 归属证明）；真实生产故障未验证 |
+| Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 路径已在真实设备端到端跑通（150.277ms→0.203ms，设备侧 qdisc `netem`→`noqueue` 读回确认）；⚠️ `link_down` 路径未在设备上实跑；真实生产故障未验证 |
 | Offline rule engine + mock model | ✅ Real |
 | Real LLM calls | ✅ Real (API key required) |
 | Topology & telemetry data | ✅ Real when a probe target is configured (`NETMIND_PROBE_TARGET`) — ICMP from the monitored device; ⚠️ falls back to a **labelled** simulator when no probe target is set (snapshot carries `source=simulated`, diagnosis confidence is discounted accordingly) |
@@ -40,7 +40,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Default security | ✅ Safe by default — no token ⇒ loopback-only (403); token ⇒ all methods incl. GET; `/healthz` public, `/metrics` authenticated |
 | Self observability | ✅ Real — `/healthz` + `/metrics` (p50/p95/p99 per endpoint, error counts) |
 | Data durability | ✅ Atomic write (fsync + rename + dir fsync) + `scripts/data_ops.py` backup/restore/drill; drill 在 CI 里每次真跑 |
-| Rollback semantics | ✅ Covered — rollback only touches *applied* commands; cookies released after rollback; security-blocked ⇒ no rollback, driver-failed ⇒ conservative rollback |
+| Rollback semantics | ✅ Covered — rollback only touches *applied* commands; cookies/routes released after rollback; security-blocked ⇒ no rollback, driver-failed ⇒ conservative rollback |
+| Post-verify rollback | ✅ Real — 下发成功但重测无改善时**真调** `TransactionManager.rollback()` 撤销（`anomaly_traffic` 路径已在真实设备验证：下发限速 → 重测无改善 → 设备侧 qdisc 读回确认已撤销）；⚠️ `congestion` 撤不回来（处置删了设备原有整形但未记录参数），此时如实报「无法自动回滚」并给出诊断命令，不拿只读检查冒充回滚 |
 | Test reproducibility | ✅ Gate `tests-are-reproducible` runs the suite twice; same pass count required |
 | Concurrency | ✅ 20×20=1040 requests, **0 errors**, data intact; latency baseline in `docs/load-test-baseline.md` (known limit: single-process only) |
 | Rate limiting | ✅ Per-source token buckets (write 5/s, read 50/s); `NETMIND_RATE_LIMIT=off` for bulk import; known limit: in-process only (multi-worker multiplies the limit) |

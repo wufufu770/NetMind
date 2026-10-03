@@ -32,6 +32,9 @@ class TransactionManager:
         mode=self.driver.mode()
         planned=[c for p in policy_set.policies for c in (list(p.commands)+list(p.rollback_commands))]
         STORE.register_flow_cookies(planned, execution_id)
+        # 登记本系统 add 下去的路由——没有这条登记，回滚时的 `ip route del`
+        # 拿不出归属证明，安全门会把每次撤销都当成「删任意路由」而拒绝。
+        STORE.register_routes(planned, execution_id)
         executed=[]
         applied=[]        # 已成功下发的 (命令, 所属策略) —— 回滚只看这个
 
@@ -59,6 +62,7 @@ class TransactionManager:
                 else:
                     executed.append(self.driver.execute(rcmd))
             STORE.release_flow_cookies(planned)   # 回滚结束，cookie 不再是「已签发」
+            STORE.release_routes(planned)
             STORE.log('deploy', reason, 'error', execution_id)
             return True, ok
 
@@ -85,6 +89,49 @@ class TransactionManager:
         STORE.log('deploy', f'deployed {len(applied)} commands through {self.driver.name} (mode={mode})', 'info', execution_id)
         return DeployResult(execution_id=execution_id, executed=executed,
                             rolled_back=False, success=True, mode=mode)
+
+    def rollback(self, policy_set: PolicySet, execution_id: str,
+                 reason: str = 'manual rollback',
+                 policies: list | None = None) -> DeployResult:
+        """公开回滚：把已下发策略的逆操作**真跑一遍**。
+
+        此前回滚只是 deploy() 内部的闭包——部署一旦成功返回，就再没有任何入口
+        能撤销它。于是「下发成功但把网络搞得更糟」这种最该撤销的场景，反而是
+        唯一撤不掉的：调用方只能把 success 报成 False，然后看着坏变更留在设备上。
+
+        `policies` 传「**确实下发过**的策略」。不传就默认整份 policy_set 都
+        下发过——那只在调用方能保证时才对；对没下发成功的策略动手，在真实设备
+        上是有害的。
+
+        返回的 `rolled_back` 只表示「确实有回滚命令被执行」，`rollback_complete`
+        表示「这些命令是否全部成功」。没有回滚命令时前者为 False——
+        什么都没回滚就不能说回滚了。
+        """
+        mode = self.driver.mode()
+        applied = policy_set.policies if policies is None else policies
+        # 逆序回滚：后加的先撤
+        rcmds = [c for pol in reversed(list(applied)) for c in pol.rollback_commands]
+        executed = []
+        ok = True
+        for rcmd in rcmds:
+            rb = SECURITY.check(rcmd, allow_dangerous=True)
+            if not rb.success:
+                ok = False
+                executed.append(rb)
+                continue
+            res = self.driver.execute(rcmd)
+            executed.append(res)
+            if not res.success:
+                ok = False
+        STORE.release_flow_cookies(
+            [c for p in applied for c in (list(p.commands) + list(p.rollback_commands))])
+        STORE.release_routes(
+            [c for p in applied for c in (list(p.commands) + list(p.rollback_commands))])
+        STORE.log('rollback', f'{reason}: {len(rcmds)} command(s), complete={ok}',
+                  'error' if not ok else 'info', execution_id)
+        return DeployResult(execution_id=execution_id, executed=executed,
+                            rolled_back=bool(rcmds), rollback_complete=ok if rcmds else None,
+                            success=ok, mode=mode)
 
     def rollback_plan(self, policy_set: PolicySet) -> list[str]:
         out=[]

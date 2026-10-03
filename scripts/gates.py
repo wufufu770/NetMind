@@ -228,6 +228,110 @@ assert neg[0]['verified'] is True, '反例应已重测，verified 应为 True'
 """,
     ),
     Gate(
+        id='rollback-on-no-improvement',
+        desc='下发后未改善必须真回滚；撤不回来时必须如实说撤不回来',
+        on_fail='block',
+        check=r"""
+# 锁 W2-rollback-trigger。此前 heal() 压根没有 rollback 调用——它把 success
+# 报成 False 就结束了，坏变更留在设备上——而 docstring 写着「触发回滚」。
+# 文档比实现更乐观，正是这个项目要消灭的那类问题。
+#
+# 这里不查源码文本，直接把行为跑一遍：注入「下发成功但指标没改善」，
+# 看回滚到底有没有被调用。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+
+calls = {'deploy': 0, 'rollback': 0}
+
+class _Probe:
+    mode = lambda self: 'real'                      # noqa: E731
+    name = 'probe'
+    def execute(self, c):
+        return CommandResult(command=c, success=True, output='')
+
+class _T:
+    driver = _Probe()
+    def deploy(self, eid, plan):
+        calls['deploy'] += 1
+        return DeployResult(execution_id=eid, executed=[], success=True, mode='real')
+    def rollback(self, plan, eid, reason='', policies=None):
+        calls['rollback'] += 1
+        has = any(p.rollback_commands for p in plan.policies)
+        return DeployResult(execution_id=eid, executed=[], rolled_back=has,
+                            rollback_complete=has, success=has, mode='real')
+
+# 门禁按顺序在同一进程里跑。改环境变量却不还原，等于给后面的门禁埋雷：
+# 它们会以为自己在真机模式下跑。逐项保存退出时恢复。
+_env_keys = ('NETMIND_ENABLE_REAL_COMMANDS', 'NETMIND_DRIVER', 'NETMIND_PROBE_TARGET')
+_env_saved = {k: os.environ.get(k) for k in _env_keys}
+os.environ['NETMIND_ENABLE_REAL_COMMANDS'] = 'true'
+os.environ['NETMIND_DRIVER'] = 'ssh'
+os.environ.pop('NETMIND_PROBE_TARGET', None)
+
+import app.core.transaction as txn                  # noqa: E402
+from app.core.telemetry import TELEMETRY            # noqa: E402
+from app.core.remediation import (ROLLBACK_INSPECT,  # noqa: E402
+                                  ROLLBACK_INVERSE, rollback_info)
+from app.schemas import CommandResult, DeployResult, Diagnosis, TelemetrySnapshot  # noqa: E402
+
+calls = {'deploy': 0, 'rollback': 0}
+
+class _Probe:
+    mode = lambda self: 'real'                      # noqa: E731
+    name = 'probe'
+    def execute(self, c):
+        return CommandResult(command=c, success=True, output='')
+
+class _T:
+    driver = _Probe()
+    def deploy(self, eid, plan):
+        calls['deploy'] += 1
+        return DeployResult(execution_id=eid, executed=[], success=True, mode='real')
+    def rollback(self, plan, eid, reason='', policies=None):
+        calls['rollback'] += 1
+        has = any(p.rollback_commands for p in plan.policies)
+        return DeployResult(execution_id=eid, executed=[], rolled_back=has,
+                            rollback_complete=has, success=has, mode='real')
+
+_real = txn.TRANSACTION
+txn.TRANSACTION = _T()
+_real_sample = TELEMETRY.sample
+try:
+    # 前后两次采样给一样的数 → 必然「没改善」
+    TELEMETRY.sample = lambda record=True: TelemetrySnapshot(
+        latency_ms=200.0, packet_loss=0.30, throughput_mbps=10, alert=True, source='real')
+    TELEMETRY._last_fallback = ''
+
+    rep = TELEMETRY.heal(Diagnosis(type='anomaly_traffic', confidence=0.9),
+                         iface='eth0', rate_mbps=5)
+    assert calls['deploy'] == 1, '前置条件不成立：deploy 没被调用'
+    assert calls['rollback'] == 1, \
+        '下发成功但指标没改善，却没有触发回滚——坏变更被留在设备上了'
+    assert rep.success is False, '没改善却报成功'
+
+    rb = rep.improvement.get('rollback')
+    assert rb and rb.get('attempted') is True, '报告里没有回滚记录，无法判断是否撤销过'
+    assert rb.get('capability') == ROLLBACK_INVERSE, \
+        f"anomaly_traffic 是可逆的，回滚能力不该报成 {rb.get('capability')}"
+
+    # congestion 撤不回来：必须明说，且不得谎称已回滚
+    calls['rollback'] = 0
+    rep2 = TELEMETRY.heal(Diagnosis(type='congestion', confidence=0.9), iface='eth0')
+    rb2 = rep2.improvement.get('rollback', {})
+    assert rb2.get('capability') == ROLLBACK_INSPECT, 'congestion 应如实降级为不可自动回滚'
+    assert rb2.get('rolled_back') is False, '没有逆操作却报 rolled_back=True——谎报'
+    assert '无法自动回滚' in rep2.summary, '撤不回来时文案必须说清'
+finally:
+    TELEMETRY.sample = _real_sample
+    txn.TRANSACTION = _real
+    for _k, _v in _env_saved.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+""",
+    ),
+    Gate(
         id='vendor-matrix-is-authoritative',
         desc='厂商支持只以矩阵为准，README 不自述；且矩阵与驱动映射不得漂移',
         on_fail='block',

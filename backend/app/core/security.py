@@ -50,6 +50,16 @@ class SecurityChecker:
         from ..store import STORE  # 延迟导入避免环
         return STORE.has_flow_cookie(command)
 
+    def _has_owned_rule(self, command: str) -> bool:
+        """危险操作要能拿出归属证明：流表认 cookie，路由认登记的规格。
+
+        路由没有 cookie 字段可挂，但归属原则一样——`ip route del` 只有在
+        「这条路由是本系统 add 下去的」时才放行。少了这一条，link_down 的
+        处置就没有任何可执行的回滚：安全门会把每次撤销都当成删任意路由。
+        """
+        from ..store import STORE  # 延迟导入避免环
+        return STORE.has_owned_route(command)
+
     def check(self, command: str, allow_dangerous: bool=False) -> CommandResult:
         for bad in self.blacklist:
             if self._has_blacklisted_token(command, bad):
@@ -57,8 +67,8 @@ class SecurityChecker:
         if self._is_dangerous(command):
             target=self._dangerous_target(command)
             if allow_dangerous:
-                # 回滚仅放行本系统签发的规则。
-                if self._has_owned_cookie(command):
+                # 回滚仅放行本系统签发的规则：流表认 cookie，路由认登记的规格。
+                if self._has_owned_cookie(command) or self._has_owned_rule(command):
                     return CommandResult(command=command, success=True, output=f'security check passed (rollback of NetMind-owned rule on {target})')
             if self.unattended_policy == 'deny':
                 return CommandResult(command=command, success=False, output=f'blocked by unattended_policy=deny ({target}); route through the approval workflow', blocked=True)

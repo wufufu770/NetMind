@@ -12,9 +12,11 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from app.core.remediation import REMEDIATIONS, RemediationUnavailable, build
+from app.core.remediation import (REMEDIATIONS, ROLLBACK_INSPECT, ROLLBACK_INVERSE,
+                                  ROLLBACK_NONE, RemediationUnavailable, build,
+                                  rollback_info)
 from app.core.security import SECURITY
-from app.schemas import Diagnosis
+from app.schemas import Diagnosis, TelemetrySnapshot
 
 
 # ---------- 方案生成 ----------
@@ -61,14 +63,83 @@ def test_every_remedy_template_passes_the_security_gate(real_device_mode):
                 assert SECURITY.check(c).success is True, f'{kind} 的命令过不了安全门: {c}'
 
 
-def test_every_rollback_command_passes_the_security_gate(real_device_mode):
-    """回滚命令同样要能过门。回滚走的是同一条安全检查路径，
-    过不了门的回滚在真正需要撤销的那一刻才会被发现是废的。"""
+def test_every_inverse_rollback_survives_its_own_security_gate(real_device_mode):
+    """可回滚的处置，回滚命令必须真能过门。
+
+    这里查的是**回滚实际走的那条路径**：`SECURITY.check(cmd, allow_dangerous=True)`。
+    危险操作在这条路径上仍要拿出归属证明（流表认 cookie、路由认登记的规格），
+    所以光断言「命令在白名单里」是不够的——那会漏掉「回滚被自己拦下」这种
+    只在真正撤销那一刻才暴露的废回滚。
+    """
+    from app.store import STORE
     for kind, kw in _SAMPLES.items():
+        info = rollback_info(kind, {'iface': 'eth0', 'backup': kw.get('backup')})
+        if info['capability'] != ROLLBACK_INVERSE:
+            continue
         plan = build(Diagnosis(type=kind, confidence=0.9), **kw)
-        for p in plan.policies:
-            for c in p.rollback_commands:
-                assert SECURITY.check(c).success is True, f'{kind} 的回滚过不了安全门: {c}'
+        # 模拟 deploy() 的登记动作——没有归属证明，危险操作的回滚必然被拒
+        STORE.register_routes([c for p in plan.policies for c in p.commands], 'test-exec')
+        try:
+            for p in plan.policies:
+                for c in p.rollback_commands:
+                    r = SECURITY.check(c, allow_dangerous=True)
+                    assert r.success is True, f'{kind} 的回滚过不了安全门: {c} → {r.output}'
+        finally:
+            STORE.owned_routes.clear()
+
+
+def test_rollback_without_ownership_is_refused(real_device_mode):
+    """反向确认：没登记过的路由不许删。
+
+    这是 `ip route del` 回滚能安全存在的前提——安全门对它的放行条件不是
+    「命令在白名单里」，而是「这条路由是本系统加的」。少这一条，
+    回滚能力就等于「一个删任意路由的开关」。
+    """
+    from app.store import STORE
+    STORE.owned_routes.clear()
+    r = SECURITY.check('ip route del 10.9.0.0/24 via 192.0.2.9 dev eth0', allow_dangerous=True)
+    assert r.success is False, '未登记的路由被放行删除'
+    assert 'deny' in r.output or 'approval' in r.output
+
+
+def test_route_registration_covers_exactly_what_was_added(real_device_mode):
+    """登记只认 add，且规格按空白归一——排版差异不该当成两条路由。"""
+    from app.store import STORE
+    STORE.owned_routes.clear()
+    try:
+        n = STORE.register_routes([
+            'ip route add 10.9.0.0/24 via 192.0.2.9 dev eth0',
+            'ip route add   10.9.0.0/24   via 192.0.2.9   dev eth0',   # 同一条
+            'ip route del 0.0.0.0/0',                                   # del 不登记
+        ], 'test-exec')
+        assert n == 1, f'只应登记 1 条，实际 {n}'
+        assert STORE.has_owned_route('ip route del 10.9.0.0/24 via 192.0.2.9 dev eth0')
+        assert not STORE.has_owned_route('ip route del 0.0.0.0/0')
+        # 注销后不再有归属证明
+        STORE.release_routes(['ip route del 10.9.0.0/24 via 192.0.2.9 dev eth0'])
+        assert not STORE.has_owned_route('ip route del 10.9.0.0/24 via 192.0.2.9 dev eth0')
+    finally:
+        STORE.owned_routes.clear()
+
+
+def test_congestion_rollback_is_declared_not_reversible():
+    """congestion 处置删掉了设备原有整形但没记参数——不能声称可回滚。
+
+    早先把 `tc qdisc show` 塞进 rollback_commands，让「已回滚」在一件都没撤销的
+    情况下成立。这里钉住：它只能是 inspect，且回滚命令不得被当成撤销执行。
+    """
+    info = rollback_info('congestion', {'iface': 'eth0'})
+    assert info['capability'] == ROLLBACK_INSPECT
+    assert info['executed'] == [], '只读命令不该被当成撤销动作'
+    assert info['read_only'] == ['tc qdisc show dev eth0']
+
+
+def test_rollback_capability_is_not_claimed_without_an_inverse(real_device_mode):
+    """三种处置里，能真撤销的必须真给逆命令，不能只给只读检查。"""
+    assert rollback_info('anomaly_traffic', {'iface': 'eth0'})['capability'] == ROLLBACK_INVERSE
+    assert rollback_info('link_down', {'iface': 'eth0', 'backup': '10.9.0.0/24'})['capability'] == ROLLBACK_INVERSE
+    # 缺参数就没有可撤销的对象
+    assert rollback_info('link_down', {'iface': 'eth0'})['capability'] == ROLLBACK_NONE
 
 
 def test_tc_commands_are_rejected_outside_real_device_mode(monkeypatch):
@@ -125,25 +196,111 @@ def test_remediations_table_covers_only_auto_actionable_kinds():
 
 @pytest.fixture
 def sim_trans(monkeypatch):
-    """把 TransactionManager 换成可控的假实现，隔离网络。"""
+    """把 TransactionManager 换成可控的假实现，隔离网络。
+
+    rollback 是真实存在的行为，必须可观测——早先 heal() 里压根没有回滚调用，
+    而 docstring 写着「触发回滚」。这里把调用记下来，测试才有东西可断言。
+    """
     import app.core.transaction as txn
     from app.schemas import CommandResult, DeployResult
 
     class _T:
         def __init__(self):
             self.calls = []
+            self.rollbacks = []
             self.mode = 'real'
             self.ok = True
+            self.rollback_ok = True
+            self.rollback_has_commands = True
         def deploy(self, eid, plan):
             self.calls.append((eid, plan))
             return DeployResult(execution_id=eid,
                                 executed=[CommandResult(command='x', success=self.ok, output='')],
                                 success=self.ok, mode=self.mode)
+        def rollback(self, plan, eid, reason='', policies=None):
+            self.rollbacks.append((eid, reason))
+            has = self.rollback_has_commands and any(p.rollback_commands for p in plan.policies)
+            return DeployResult(execution_id=eid, executed=[], rolled_back=has,
+                                rollback_complete=self.rollback_ok if has else None,
+                                success=self.rollback_ok, mode=self.mode)
     t = _T()
     monkeypatch.setattr(txn, 'TRANSACTION', t)
     monkeypatch.setenv('NETMIND_DRIVER', 'simulation')
     monkeypatch.delenv('NETMIND_PROBE_TARGET', raising=False)
     return t
+
+
+# ---------- 未改善时的回滚 ----------
+
+def _no_improvement(monkeypatch, sim_trans, kind, **kw):
+    """让 heal() 走「真下发 + 指标没改善」这条分支。"""
+    from app.core.telemetry import TELEMETRY
+    TELEMETRY._last_fallback = ''
+    sim_trans.mode = 'real'
+    seq = iter([
+        TelemetrySnapshot(latency_ms=200.0, packet_loss=0.30, throughput_mbps=10, alert=True, source='real'),
+        TelemetrySnapshot(latency_ms=200.0, packet_loss=0.30, throughput_mbps=10, alert=True, source='real'),
+    ])
+    monkeypatch.setattr(TELEMETRY, 'sample', lambda record=True: next(seq))
+    return TELEMETRY.heal(Diagnosis(type=kind, confidence=0.9), **kw)
+
+
+def test_no_improvement_triggers_an_actual_rollback(monkeypatch, sim_trans):
+    """下发成功但没改善时，必须真去撤销——这正是此前完全缺失的一步。
+
+    早先这里只把 success 报成 False，坏变更留在设备上，而 docstring 却写着
+    「触发回滚」。报告里不出现 rollback 段就说明回滚没发生。
+    """
+    r = _no_improvement(monkeypatch, sim_trans, 'anomaly_traffic',
+                        iface='eth0', rate_mbps=5)
+    assert sim_trans.rollbacks, '未改善却没有触发回滚'
+    assert r.success is False
+    assert r.improvement['rollback']['attempted'] is True
+    assert r.improvement['rollback']['rolled_back'] is True
+    assert '未改善' in r.summary and '已回滚' in r.summary
+
+
+def test_rollback_failure_is_reported_as_incomplete(monkeypatch, sim_trans):
+    """回滚命令下发失败要说「回滚未完成」，不能含糊成别的。"""
+    sim_trans.rollback_ok = False
+    r = _no_improvement(monkeypatch, sim_trans, 'anomaly_traffic', iface='eth0', rate_mbps=5)
+    assert r.improvement['rollback']['complete'] is False
+    assert '回滚未完成' in r.summary
+    assert r.success is False
+
+
+def test_remediation_without_inverse_says_it_cannot_roll_back(monkeypatch, sim_trans):
+    """congestion 撤不回来时必须明说撤不回来。"""
+    r = _no_improvement(monkeypatch, sim_trans, 'congestion', iface='eth0')
+    rb = r.improvement['rollback']
+    assert rb['capability'] == ROLLBACK_INSPECT
+    assert rb['rolled_back'] is False
+    assert '无法自动回滚' in r.summary
+    assert '未记录' in rb['note'], '要说清为什么撤不回来'
+    assert r.success is False
+
+
+def test_rollback_reason_records_the_measurement(monkeypatch, sim_trans):
+    """回滚的原因得带上前后测值——否则事后无从判断该不该撤。"""
+    _no_improvement(monkeypatch, sim_trans, 'anomaly_traffic', iface='eth0', rate_mbps=5)
+    _eid, reason = sim_trans.rollbacks[-1]
+    assert '200.0' in reason and 'no improvement' in reason
+
+
+def test_improvement_does_not_roll_back(monkeypatch, sim_trans):
+    """改善了就别多此一举地撤——撤了反而把好状态搞回去。"""
+    from app.core.telemetry import TELEMETRY
+    TELEMETRY._last_fallback = ''
+    sim_trans.mode = 'real'
+    seq = iter([
+        TelemetrySnapshot(latency_ms=200.0, packet_loss=0.30, throughput_mbps=10, alert=True, source='real'),
+        TelemetrySnapshot(latency_ms=0.2, packet_loss=0.0, throughput_mbps=90, alert=False, source='real'),
+    ])
+    monkeypatch.setattr(TELEMETRY, 'sample', lambda record=True: next(seq))
+    r = TELEMETRY.heal(Diagnosis(type='congestion', confidence=0.9), iface='eth0')
+    assert r.success is True
+    assert not sim_trans.rollbacks, '改善后不该回滚'
+    assert r.improvement['rollback']['attempted'] is False
 
 
 def test_dry_run_mode_never_reports_success(monkeypatch, sim_trans):

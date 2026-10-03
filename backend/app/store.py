@@ -36,6 +36,10 @@ class PersistentStore:
         self.agent_schedules: Dict[str, Dict[str, Any]] = {}
         # 已签发流表 cookie -> 签发 execution_id；回滚仅放行已登记项。
         self.flow_cookies: Dict[str, str] = {}
+        # 已由本系统 `ip route add` 下去的路由规格 -> 签发 execution_id。
+        # 与 flow_cookies 同一个道理：命令文本可伪造，登记不可。缺了它，
+        # `ip route del` 这类危险操作就永远拿不到归属证明，回滚无从谈起。
+        self.owned_routes: Dict[str, str] = {}
         self._lock=threading.RLock()
         self._dirty=False
         self._last_save=0.0
@@ -64,6 +68,7 @@ class PersistentStore:
             'templates': self.templates,
             'agent_schedules': self.agent_schedules,
             'flow_cookies': dict(self.flow_cookies),
+            'owned_routes': dict(self.owned_routes),
         }
 
     def save(self) -> bool:
@@ -249,6 +254,7 @@ class PersistentStore:
         self.templates.update(raw.get('templates', {}))
         self.agent_schedules.update(raw.get('agent_schedules', {}))
         self.flow_cookies.update({str(k): str(v) for k, v in raw.get('flow_cookies', {}).items()})
+        self.owned_routes.update({str(k): str(v) for k, v in raw.get('owned_routes', {}).items()})
         if len(self.executions) > 200:
             self.executions = dict(list(self.executions.items())[-200:])
 
@@ -298,6 +304,48 @@ class PersistentStore:
     def has_flow_cookie(self, command: str) -> bool:
         """命令中携带的任一 NetMind cookie 是否为系统登记签发的。"""
         return any(m.group(1) in self.flow_cookies for m in self.COOKIE_RE.finditer(command or ''))
+
+    ROUTE_RE = re.compile(r'^ip\s+route\s+(add|del)\s+(.+?)\s*$')
+
+    @classmethod
+    def _route_spec(cls, command: str) -> tuple[str, str] | None:
+        """拆出 (动词, 规格)。规格按空白归一，避免排版差异当成两条路由。"""
+        m = cls.ROUTE_RE.match((command or '').strip())
+        if not m:
+            return None
+        return m.group(1), ' '.join(m.group(2).split())
+
+    def register_routes(self, commands: list[str], execution_id: str) -> int:
+        """登记本系统 `ip route add` 下去的路由。返回新登记数量。
+
+        只登记 add——登记 del 等于给自己开一条删任意路由的口子。
+        """
+        added = 0
+        with self._lock:
+            for cmd in commands or []:
+                parsed = self._route_spec(cmd)
+                if parsed and parsed[0] == 'add' and parsed[1] not in self.owned_routes:
+                    self.owned_routes[parsed[1]] = execution_id
+                    added += 1
+            if added:
+                self.mark_dirty()
+        return added
+
+    def release_routes(self, commands: list[str]) -> int:
+        """回滚后注销登记。注销后那条路由不再有归属证明，不可再被特权回滚。"""
+        released = 0
+        with self._lock:
+            for cmd in commands or []:
+                parsed = self._route_spec(cmd)
+                if parsed and parsed[1] in self.owned_routes:
+                    if self.owned_routes.pop(parsed[1], None) is not None:
+                        released += 1
+        return released
+
+    def has_owned_route(self, command: str) -> bool:
+        """`ip route del` 的目标规格是否为本系统登记签发。"""
+        parsed = self._route_spec(command)
+        return bool(parsed and parsed[0] == 'del' and parsed[1] in self.owned_routes)
 
     def log(self, source: str, message: str, level: str='info', execution_id: str|None=None, data: dict|None=None):
         entry=LogEntry(source=source, message=message, level=level, execution_id=execution_id, data=data or {})

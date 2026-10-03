@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 21,
-  "phase": "build",
-  "updated": "2026-10-03T12:53:50+08:00",
+  "cycle": 22,
+  "phase": "plan",
+  "updated": "2026-10-03T13:27:58+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -20,12 +20,12 @@
     }
   },
   "metrics": {
-    "tests_collected": 215,
+    "tests_collected": 224,
     "gates_total": 22,
-    "gates_passed": 23,
+    "gates_passed": 24,
     "gates_warned": 0,
-    "src_lines": 12018,
-    "generic_names": 190,
+    "src_lines": 12533,
+    "generic_names": 191,
     "dead_modules": 0,
     "slop_hits": 0,
     "license_present": true
@@ -282,6 +282,18 @@
       "dead_modules": 0,
       "slop_hits": 0,
       "license_present": true
+    },
+    {
+      "cycle": 22,
+      "tests_collected": 224,
+      "gates_total": 22,
+      "gates_passed": 24,
+      "gates_warned": 0,
+      "src_lines": 12533,
+      "generic_names": 191,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
     }
   ],
   "gates": [
@@ -326,37 +338,31 @@
       "status": "pass"
     }
   ],
-  "current_round": {
-    "id": "C1-auth-default-safe",
-    "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
-    "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
-    "deliverable": "",
-    "planned_at": "2026-10-03T12:49:53+08:00"
-  },
+  "current_round": null,
   "backlog": [
     {
       "id": "C1-auth-default-safe",
       "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
       "priority": "P0",
       "depends_on": [],
-      "status": "pending",
-      "note": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖"
+      "status": "done",
+      "note": "core/access.py 三档模式（loopback-only/token/anon-readonly）+ is_loopback；XFF 默认不采信，需显式 NETMIND_TRUST_PROXY；门禁 validate-project 覆盖安全默认项；测试见 test_access_and_observability.py"
     },
     {
       "id": "C2-transaction-tests",
       "title": "transaction.py 回归（部分回滚/失败回滚/幂等）",
       "priority": "P0",
       "depends_on": [],
-      "status": "pending",
-      "note": "deploy/rollback_plan 被测试直接调用 0 处；唯一引用是注释里「模拟其行为」"
+      "status": "done",
+      "note": "test_transaction.py + test_security_gate_semantics.py（10 例）覆盖回滚集定义、危险操作分类、cookie/路由归属校验；本轮另补公开 rollback() 与回滚行为回归"
     },
     {
       "id": "C3-load-and-recovery",
       "title": "并发压测 + 强杀恢复 + 备份恢复演练",
       "priority": "P0",
       "depends_on": [],
-      "status": "pending",
-      "note": "全仓零压测。单 JSON 文件 + RLock 只护进程内；落盘中途崩溃会不会写半截 JSON 未测"
+      "status": "done",
+      "note": "scripts/load_test.py（四类并发压测，实发实报）；scripts/data_ops.py backup/restore/verify/drill；门禁 load-test-no-loss 与 data-durability-drill 每次 CI 真跑"
     },
     {
       "id": "C4-main-path-real-telemetry",
@@ -365,8 +371,8 @@
       "depends_on": [
         "C1"
       ],
-      "status": "pending",
-      "note": "telemetry.sample() 仍返回硬编码常量；真实采集只在 lab_collector 一条支路"
+      "status": "done",
+      "note": "commit a398492：sample() 优先真探测（经 SSH 在被监控设备发起 ICMP），provenance() 可查来源，模拟降级带 source 且置信度打折 0.6；门禁 telemetry-not-guessed"
     },
     {
       "id": "C5-healing-real-action",
@@ -396,15 +402,15 @@
         "C1"
       ],
       "status": "pending",
-      "note": "SECURITY.md 自认「no rate limiting or per-endpoint RBAC」"
+      "note": "部分完成：速率限制已交付（core/ratelimit.py，按来源分读写两组令牌桶，NETMIND_RATE_LIMIT=off 可关；门禁覆盖）。**RBAC 三档角色未做**——当前所有持 token 者权限相同，仍是「一个 token 全通」，商用前应补。"
     },
     {
       "id": "C8-self-observability",
       "title": "自身可观测性：/healthz + /metrics + p99 延迟与错误率",
       "priority": "P1",
       "depends_on": [],
-      "status": "pending",
-      "note": "项目能审计网络设备，却无法回答客户关于自己这条 SLO 的问题"
+      "status": "done",
+      "note": "/healthz + /metrics（p50/p95/p99 分端点、错误计数）；默认安全，读需认证"
     },
     {
       "id": "C9-frontend-tests",
@@ -478,21 +484,24 @@
       "title": "CI 加 pip-audit + npm audit + lint",
       "priority": "P1",
       "depends_on": [],
-      "status": "pending"
+      "status": "done",
+      "note": "ci.yml 含 pip-audit + npm audit；门禁 ci-security-gates；依赖漏洞已清零"
     },
     {
       "id": "W0-sbom",
       "title": "SBOM 生成 + 签名发布",
       "priority": "P1",
       "depends_on": [],
-      "status": "pending"
+      "status": "done",
+      "note": "ci.yml 用 cyclonedx-py 从**声明文件**生成（不是 runner 环境）；门禁 sbom-covers-declared-deps"
     },
     {
       "id": "W0-deps",
       "title": "依赖钉扎：langgraph 未钉版本 + dependabot",
       "priority": "P1",
       "depends_on": [],
-      "status": "pending"
+      "status": "done",
+      "note": "全钉版（门禁 deps-pinned-and-audited）+ .github/dependabot.yml；门禁 dependabot-present"
     },
     {
       "id": "W0-security-sla",
@@ -516,7 +525,8 @@
       "depends_on": [
         "W2-config-diff"
       ],
-      "status": "pending"
+      "status": "done",
+      "note": "success/verified 只能由实测前后对比推出，未重测即 verified=False；门禁 no-fake-healing"
     },
     {
       "id": "W2-rollback-trigger",
@@ -525,7 +535,8 @@
       "depends_on": [
         "W2-post-verify"
       ],
-      "status": "pending"
+      "status": "done",
+      "note": "轮22 交付：新增 TransactionManager.rollback() 公开入口；heal() 重测无改善时真调回滚。anomaly_traffic 路径已在真实设备验证（下发限速→无改善→设备侧 qdisc 读回确认已撤销）。congestion 结构性不可回滚，如实报「无法自动回滚」。门禁 rollback-on-no-improvement 锁死"
     },
     {
       "id": "W2-retry-cap",
@@ -550,7 +561,8 @@
         "W2-post-verify",
         "W2-multivendor"
       ],
-      "status": "pending"
+      "status": "done",
+      "note": "docs/closed-loop-run-report.md：真闭环 S0–S3（含反例）+ 真实 SSH 下发自愈 + 回滚验证三节，并列出「本报告不能支撑的主张」"
     },
     {
       "id": "B1-appjsx",
@@ -896,6 +908,14 @@
       "shipped": "heal() 重写为「生成真命令→过安全门→TransactionManager 真下发→重测对比」，严格区分「干跑没下发/设备拒绝执行/下发了没改善」三种情况。新增 core/remediation.py 把 3 种诊断映射成可执行命令；config_error 刻意不给自动处置（ovs-ofctl del-flows 属危险操作，只放行带 NetMind cookie 的流表，绕开等于把「回滚任意流表」做成开关）。修一个让真闭环彻底失效的 bug：SSHDriver.execute() 无条件 success=True，实测「tc: command not found」也报成功——「已真下发」在命令根本没跑时也成立；改为取远端退出码，拿不到标记时不猜成功。真实验证：注入 150ms/10% 拥塞→真测 150.454ms→诊断 congestion(0.394)→真下发 tc qdisc del dev eth0 root→设备侧读回 qdisc netem→noqueue→重测 0.137ms，success=True verified=True。设备侧读回是独立于 NetMind 自报的第三份证据。新增 scripts/verify_heal.py 作可复现路径并实测跑通；缺 env 或探测降级时直接退出，不产出结论。诚实表该行由 ⚠️ 收口为 ✅（附 link_down/anomaly_traffic 未实跑、真实故障未验证的限定）。测试 194→215。另清 4 处死局部变量（含 rb_all_ok，读代码的人会误以为回滚完整性由它控制），并加门禁 no-dead-local 锁死，已用注入反例验证该门禁有牙齿。",
       "at": "2026-10-03T12:49:58+08:00",
       "based_on": "a398492"
+    },
+    {
+      "cycle": 22,
+      "id": "W2-rollback-trigger",
+      "title": "post-verify 失败自动触发回滚 —— 把文档吹的牛补成实现",
+      "shipped": "新增 TransactionManager.rollback() 公开入口：逆序取已下发策略的 rollback_commands，逐条过安全门后走 driver，注销 cookie 与路由归属，rolled_back 只在真有回滚命令被执行时为真。heal() 重测无改善时真调它，并把回滚能力/是否撤销/是否完整写进报告的 rollback 段。三处设计修正：(1) 处置分回滚能力三级——inverse 真逆操作、inspect 只读检查、none 无；只读命令不再进 rollback_commands，早先它会让执行方在一件都没撤销时报 rolled_back=True。(2) link_down 的回滚原本永远被自己拦下——ip route del 属危险操作，而 allow_dangerous 路径要求归属证明且此前只认流表 cookie。按同一原则补路由登记：只登记本系统 ip route add 下去且规格完全一致的路由，命令文本可伪造、登记不可；未登记的删除请求仍被拒。(3) docstring 按实现重写，不再声称未实现的能力。真实验证（verify_heal.py --scenario rollback）：下发 5mbit 限速 → 重测 0.125→0.628ms 无改善 → 自动回滚 → 设备侧 qdisc 读回 noqueue，限速确实被撤销。congestion 撤不回来时如实报「无法自动回滚」并说明原因（未记录原整形参数）。新增门禁 rollback-on-no-improvement，已用注入反例验证它有牙齿。顺带修一处自身缺陷：新门禁设了环境变量却不还原，会泄漏给同进程后续门禁。测试 215→224。门禁 23→24 条全绿。另清理 backlog 11 条已交付项，每条附可核查证据而非空口标记；C7 明确标注只完成限速、RBAC 未做。",
+      "at": "2026-10-03T13:27:58+08:00",
+      "based_on": "0e22260"
     }
   ],
   "retro": [
@@ -1250,17 +1270,33 @@
       "root_cause": "loop.py 在 round 开始时读 state.json，三分钟后（门禁要真跑一遍）才写回，期间任何人或任何并行进程的写入都会被这个旧快照整个覆盖。实测踩到：我在 round 运行期间写入的一条 retro，落盘后不见了，而 save() 不报错、不提示——写进去的东西无声消失，人只会以为「保存了」。这比崩溃更危险：它让人对「已记录」这件事产生错误信念。",
       "fix": "load() 记下磁盘内容 sha256，save() 前比对，不一致就拒绝落盘并说明原因；save() 成功后刷新指纹，允许连续保存。已实测：正常保存通过，并发修改被拦下且对方内容完好。",
       "at": "2026-10-03T12:52:00+08:00"
+    },
+    {
+      "cycle": 22,
+      "gate": "rollback-on-no-improvement",
+      "on_fail": "block",
+      "root_cause": "文档比实现更乐观：heal() 的 docstring 写「下发了但指标没改善 → 触发回滚」，而 telemetry.py 里 rollback 出现 0 次——它把 success 报成 False 就结束了，坏变更留在设备上。transaction.py 的回滚是 deploy() 内部闭包，部署一旦成功返回就再无入口能撤销。更深一层：link_down 的回滚就算实现了也跑不通——ip route del 属危险操作，安全门在 allow_dangerous 路径上要求归属证明，而该证明此前只认流表 cookie，路由拿不出，于是每次撤销都被自己拦下。",
+      "fix": "新增公开 rollback() 入口并在 heal() 无改善时调用；回滚能力分三级，只读命令不进回滚列表（否则会在一件都没撤销时报 rolled_back=True）；按流表 cookie 的同一原则补路由归属登记，只认本系统 add 下去且规格一致的路由；门禁 rollback-on-no-improvement 锁死，已用注入反例验证它有牙齿。",
+      "at": "2026-10-03T13:40:00+08:00"
+    },
+    {
+      "cycle": 22,
+      "gate": "gate-env-leak",
+      "on_fail": "block",
+      "root_cause": "新写的门禁 rollback-on-no-improvement 在进程内设了 NETMIND_DRIVER=ssh 与 NETMIND_ENABLE_REAL_COMMANDS=true 却没有还原。门禁按顺序在同一进程里跑，后面的门禁会以为自己在真机模式下跑。同一轮还踩了另一个：门禁在后台运行时我改了 telemetry.py 做反例测试，tests-green 读到了半改的文件而报了一个当时并不存在的失败。两者都说明「验证工具本身」和「被验证的代码」一样需要隔离。",
+      "fix": "门禁内逐项保存并退出时恢复环境变量，已实测未泄漏；此后门禁运行期间不再改动任何源码文件。",
+      "at": "2026-10-03T13:42:00+08:00"
     }
   ],
-  "gates_total": 23,
+  "gates_total": 24,
   "next_round": {
-    "id": "C1-auth-default-safe",
-    "title": "默认安全：token 为空时拒绝非本机启动；GET 也走认证",
-    "why": "实测默认配置下 GET /api/telemetry/latest 返回 200；main.py:19 的门 if token and method not in {GET,HEAD,OPTIONS} 让 GET 永久豁免。不修不能对外卖",
+    "id": "W2-multivendor",
+    "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
+    "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T12:52:44+08:00"
+    "planned_at": "2026-10-03T13:27:52+08:00"
   },
-  "based_on": "a398492",
+  "based_on": "0e22260",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

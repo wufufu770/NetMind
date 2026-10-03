@@ -168,19 +168,22 @@ class TelemetryService:
     def heal(self, diagnosis: Diagnosis, *, iface: str | None = None,
              backup: str | None = None, rate_mbps: int = 5,
              bridge: str | None = None) -> HealingReport:
-        """自愈：生成真命令 → 过安全门 → 真下发 → 重测验证。
+        """自愈：生成真命令 → 过安全门 → 真下发 → 重测 → 必要时回滚。
 
         此前这里只把 `self.fault` 改回 'normal' 再采一次样，动作是中文描述串，
         不产生任何真实副作用。现在处置是一条真能过白名单的命令，经
-        TransactionManager 下发（受危险操作语义门、cookie 校验、回滚保护），
-        下发完**重测**并与处置前对比——改善与否由数据说话。
+        TransactionManager 下发（受危险操作语义门、cookie/路由归属校验、
+        回滚保护），下发完**重测**并与处置前对比——改善与否由数据说话。
 
-        报告严格区分三种情况，不含糊：
-          · 真下发且指标改善   → success=True, verified=True, applied=True
+        报告严格区分四种情况，不含糊：
+          · 真下发且指标改善   → success=True, verified=True
           · 干跑/仿真未真下发   → applied=False，明确说没动设备
-          · 下发了但指标没改善 → success=False，触发回滚
+          · 真下发但设备拒执行 → success=False，设备侧未改变
+          · 真下发且没改善     → success=False，**调用 rollback 撤销**；
+            撤不回来时（如 congestion 清了原有整形但没记参数）如实说撤不回来，
+            并在 rollback 段给出可执行的诊断命令，不拿只读检查冒充回滚
         """
-        from .remediation import RemediationUnavailable, build
+        from .remediation import RemediationUnavailable, build, rollback_info
 
         before = STORE.telemetry[-1] if STORE.telemetry else self.sample()
         eid = f'heal-{uuid4().hex[:8]}'
@@ -242,12 +245,37 @@ class TelemetryService:
                 summary=(f'**真下发了但设备拒绝执行**：{detail or "命令返回非零"}——'
                          f'设备侧状态未改变，不报成功'))
         else:
-            rep = HealingReport(
-                action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
-                before_snapshot=before, after_snapshot=after,
-                success=bool(improved), verified=True, improvement=imp,
-                summary=(f"已下发并重测：{lat_before}→{lat_after}ms，"
-                         f'丢包 {loss_before}→{loss_after}（{"已改善" if improved else "未改善"}）'))
+            rb = rollback_info(diagnosis.type, {'iface': iface, 'backup': backup})
+            if not improved:
+                # 真下发了但没改善——撤销，别把更糟的状态留在设备上。
+                # 能力不足时（congestion 清了原有整形但没记参数）如实说撤不回来，
+                # 不拿一条只读的 qdisc show 冒充回滚。
+                res = TRANSACTION.rollback(
+                    plan, eid,
+                    reason=f'post-verify no improvement: {lat_before}->{lat_after}ms')
+                rb.update(attempted=True, rolled_back=res.rolled_back,
+                          complete=res.rollback_complete,
+                          executed_cmds=[e.model_dump(mode='json') for e in res.executed])
+                imp['rollback'] = rb
+                verb = ('已回滚' if res.rolled_back and res.rollback_complete
+                        else '回滚未完成' if res.rolled_back
+                        else '无法自动回滚')
+                rep = HealingReport(
+                    action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
+                    before_snapshot=before, after_snapshot=after,
+                    success=False, verified=True, improvement=imp,
+                    summary=(f"已下发并重测：{lat_before}→{lat_after}ms，"
+                             f'丢包 {loss_before}→{loss_after}（**未改善**），{verb}'
+                             f'——{rb["note"]}'))
+            else:
+                rb.update(attempted=False, rolled_back=False, complete=None)
+                imp['rollback'] = rb
+                rep = HealingReport(
+                    action_taken=imp['planned_commands'][0] if imp['planned_commands'] else '无',
+                    before_snapshot=before, after_snapshot=after,
+                    success=True, verified=True, improvement=imp,
+                    summary=(f"已下发并重测：{lat_before}→{lat_after}ms，"
+                             f'丢包 {loss_before}→{loss_after}（已改善）'))
         STORE.log('healing', rep.summary, 'info' if rep.success else 'warn', eid)
         return rep
 TELEMETRY=TelemetryService()

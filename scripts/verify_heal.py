@@ -56,7 +56,12 @@ def main() -> int:
     user = os.environ['NETMIND_SSH_USERNAME']
     pw = os.environ['NETMIND_SSH_PASSWORD']
 
-    print('=== 0. 连设备，注入真实拥塞 ===')
+    scenario = ('rollback'
+                if '--scenario' in sys.argv
+                and sys.argv[sys.argv.index('--scenario') + 1] == 'rollback'
+                else 'heal')
+
+    print(f'=== 0. 连设备 {host}:{port}（场景：{scenario}）===')
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
@@ -65,6 +70,52 @@ def main() -> int:
         sys.exit(f'连不上设备 {host}:{port} — {type(exc).__name__}: {exc}')
     # 先清一次，避免上一轮遗留的 qdisc 让这次「注入」名不副实
     ssh.exec_command(f'sudo -n tc qdisc del dev {IFACE} root')[1].read()
+    return _scenario_rollback(ssh) if scenario == 'rollback' else _scenario_heal(ssh)
+
+
+def _scenario_rollback(ssh) -> int:
+    """验证「下发成功但没改善 → 真回滚」这条路径。
+
+    选 anomaly_traffic 而不是 congestion：它的处置是**加**一条限速，逆操作
+    就是删掉它，等量可逆，所以回滚效果能在设备上直接读回。congestion 删的是
+    设备原有整形，处置前没记参数就撤不回来——那条路径验的是「如实说撤不回来」。
+
+    这里不注入故障：5mbit 限速对 ICMP 往返几乎无影响，所以重测不会改善，
+    正好走到回滚分支。指标是真测的，不是编的。
+    """
+    from app.schemas import Diagnosis
+
+    print('=== 1. 干净起点 ===')
+    print(f'  设备侧 qdisc: {qdisc_state(ssh)}')
+    snap, why = _real_snapshot()
+    if snap is None:
+        sys.exit(f'真实探测失败，本轮验证作废：{why}')
+    print(f'  探测: {snap.latency_ms}ms 丢包 {snap.packet_loss} source={snap.source}')
+
+    print('\n=== 2. heal()：下发限速 → 重测无改善 → 应触发回滚 ===')
+    TELEMETRY._last_fallback = ''
+    rep = TELEMETRY.heal(Diagnosis(type='anomaly_traffic', confidence=0.8),
+                         iface=IFACE, rate_mbps=5)
+    imp = rep.improvement
+    rb = imp.get('rollback', {})
+    print(f'  处置命令: {rep.action_taken}')
+    print(f'  下发模式: {imp.get("deploy_mode")}  已下发到设备: {imp.get("applied")}')
+    print(f'  延迟 {imp.get("latency_before_ms")}→{imp.get("latency_after_ms")}ms')
+    print(f'  success={rep.success}  verified={rep.verified}')
+    print(f'  回滚: capability={rb.get("capability")} attempted={rb.get("attempted")} '
+          f'rolled_back={rb.get("rolled_back")} complete={rb.get("complete")}')
+    print(f'  {rep.summary}')
+
+    print('\n=== 3. 设备侧读回：回滚后限速应当已被撤销 ===')
+    after_q = qdisc_state(ssh)
+    print(f'  {after_q}')
+    undone = 'netem' not in after_q
+    print(f'\n>>> 回滚路径: {"通过" if undone else "未通过"}'
+          f'（设备已恢复={undone}, 回滚完整={rb.get("complete")}）')
+    return 0 if undone else 1
+
+
+def _scenario_heal(ssh) -> int:
     ssh.exec_command(f'sudo -n tc qdisc add dev {IFACE} root netem delay {DELAY} loss {LOSS}')[1].read()
     print(f'  设备侧 qdisc: {qdisc_state(ssh)}')
 
