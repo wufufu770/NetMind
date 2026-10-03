@@ -40,6 +40,72 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='readonly-credential-is-enforced',
+        desc='只读凭据能读不能写；写操作须 403（凭据有效但权限不足）而非 401',
+        on_fail='block',
+        check=r"""
+# SECURITY.md 此前明写「无只读角色」。对自托管网络运维工具，最常见的实际需求
+# 恰恰是「让另一个人能看运行态势但不许他下发配置变更」——原先只有匿名只读与
+# 全权 token 两个极端，中间档缺失。
+#
+# 两条容易被做错的地方：
+#   1) 写操作要 403 不是 401。凭据有效、只是权限不够；混成 401 会让客户端
+#      以为该换凭据，而不是「这个人没这个权限」。
+#   2) 比对不能早退。早退会让「命中第几个候选」体现在响应时间上，攻击者据此
+#      区分凭据种类。只读与管理员权限不同，能区分本身就是可利用的信息。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+_keys = ('NETMIND_ADMIN_TOKEN', 'NETMIND_READONLY_TOKEN', 'NETMIND_ALLOW_ANON_READONLY',
+         'NETMIND_TRUST_PROXY')
+_saved = {k: os.environ.get(k) for k in _keys}
+ADMIN, RO = 'gate-admin', 'gate-readonly'
+try:
+    from app.core.access import SAFE_METHODS, evaluate, verify_any  # noqa: E402
+
+    class _R:
+        def __init__(self, method, path, token=None):
+            self.method = method
+            self.url = type('U', (), {'path': path})()
+            self.headers = {'authorization': f'Bearer {token}'} if token else {}
+            self.client = type('C', (), {'host': '203.0.113.9'})()
+
+    for k in _keys:
+        os.environ.pop(k, None)
+    os.environ['NETMIND_ADMIN_TOKEN'] = ADMIN
+    os.environ['NETMIND_READONLY_TOKEN'] = RO
+
+    # 先查写：只读凭据一旦对写操作不再限权，报错要直指这一条，
+    # 而不是让「读」先撞上来报一句让人摸不着头脑的话
+    for m in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        d = evaluate(_R(m, '/api/telemetry/heal', RO))
+        assert d.allowed is False, f'只读凭据竟然能 {m}——只读角色形同虚设'
+        assert d.status == 403, f'只读凭据的 {m} 返回 {d.status}，应为 403（凭据有效、权限不足）'
+    for m in sorted(SAFE_METHODS):
+        d = evaluate(_R(m, '/api/dashboard', RO))
+        assert d.allowed, f'只读凭据的 {m} 被拒了——只读角色没了意义'
+        assert d.mode == 'readonly-token'
+    for m in ('GET', 'POST'):
+        assert evaluate(_R(m, '/api/dashboard', ADMIN)).allowed, f'管理员凭据的 {m} 被拒了'
+    assert evaluate(_R('GET', '/api/dashboard', 'wrong')).status == 401, \
+        '凭据错误必须是 401，与「权限不足」区分开'
+    # 不短路：与候选顺序无关
+    a = verify_any(f'Bearer {RO}', (('admin', ADMIN), ('readonly', RO)))
+    b = verify_any(f'Bearer {RO}', (('readonly', RO), ('admin', ADMIN)))
+    assert a == b == 'readonly', 'verify_any 的结果依赖候选顺序——早退会泄露时序信息'
+    # 什么都不配时默认安全不得放松
+    for k in _keys:
+        os.environ.pop(k, None)
+    d = evaluate(_R('GET', '/api/dashboard'))
+    assert d.allowed is False and d.status == 403, '两个 token 都没配时，远程访问不再默认拒绝'
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+""",
+    ),
+    Gate(
         id='release-is-coherent',
         desc='版本号与 CHANGELOG 最新发布段一致；已发布段的小节不得重复堆叠',
         on_fail='block',

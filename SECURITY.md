@@ -11,17 +11,19 @@ NetMind is a **local-first network operations tool**. Understand what it can tou
 | Read-only collection | `collect()` uses napalm/ncclient getters only; it never pushes configuration. |
 | Write execution | Gated by `SecurityChecker`: allowlist + deny-keywords, plus a per-command interface policy. Dangerous commands (`del-flows` / `mod-flows` / `iptables -F` / `link set down` / `route del` / `addr del`) are blocked outright under the default `unattended_policy=deny`. |
 | Auto-remediation | **Off unless `NETMIND_HEAL_IFACE` is set.** The interface is never guessed, and repeated failures against the same fault stop at a cap (default 3) and hand off to a human. See `docs/DEPLOY.md` §8. |
-| API access | With no `NETMIND_ADMIN_TOKEN` set, **only loopback** can reach the API; everything else gets 403. Once the token is set, **every** method on **every** endpoint requires `Authorization: Bearer <token>` — including GET. `/healthz` is the sole public exception. |
+| API access | With no token set, **only loopback** can reach the API; everything else gets 403. Once a token is set, **every** method on **every** endpoint requires `Authorization: Bearer <token>` — including GET. `/healthz` is the sole public exception. |
+| Read-only credential | `NETMIND_READONLY_TOKEN` grants GET/HEAD/OPTIONS and refuses writes with **403** (credential is valid, the role is not). Rotating the admin token does not invalidate it. Setting both variables to the same value resolves to the admin tier — you asked for write access, so you get it. |
 | LLM egress | Leaving the machine: the intent text, the IntentDSL, and a tool context built from topology, telemetry, path, and SLA/bandwidth estimates. **Not** sent: device credentials, persisted store contents, command history. Cached to `~/.cache/netmind/` on the diagnose/enhance path only (override with `NETMIND_CACHE_DIR`); the main model adapter keeps history in memory. |
 
 ## Known limitations
 
 These are real gaps, not disclaimers. If one of them blocks your deployment, say so in an issue.
 
-- **No per-endpoint RBAC.** Anyone holding the admin token has every permission.
-  For a self-hosted single-operator install one admin token is a workable model; for a
-  shared or multi-operator deployment it is not — you would be handing the same key to
-  people who should see different things. There is no read-only role.
+- **No per-endpoint or per-device RBAC.** There are exactly two credential tiers:
+  `NETMIND_ADMIN_TOKEN` (everything) and `NETMIND_READONLY_TOKEN` (safe methods only).
+  Within a tier there is no further scoping — an admin can act on every device, and a
+  read-only holder can read every endpoint. If you need "Alice may view router A but
+  not router B", that is not supported.
 - **Rate limiting is in-process only.** Per-source token buckets (write 5/s, read 50/s;
   `NETMIND_RATE_LIMIT=off` disables them for bulk import) live in the worker process,
   so a multi-worker deployment multiplies the effective limit. See `docs/DEPLOY.md` §3, §6.5.
