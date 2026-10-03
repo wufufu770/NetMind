@@ -40,6 +40,139 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='release-is-coherent',
+        desc='版本号与 CHANGELOG 最新发布段一致；已发布段的小节不得重复堆叠',
+        on_fail='block',
+        check=r"""
+# 0.2.0 之前 CHANGELOG 的 Unreleased 段里有 19 个重复的 `### Added/Fixed` 小节、
+# 99 条条目——读者根本读不出这个版本里有什么。归并之后要防止复发。
+#
+# 两条硬要求：
+#   1) backend/app/__init__ 的版本号必须等于 CHANGELOG 里最新的已发布段
+#   2) 一个已发布段里每种小节标题只能出现一次
+import re
+import sys
+from pathlib import Path as P
+
+ch = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8')
+sys.path.insert(0, str(ROOT / 'backend'))
+from app import __version__ as ver                    # noqa: E402
+
+released = re.findall(r'^## \[(\d+\.\d+\.\d+)\] - ', ch, flags=re.M)
+assert released, 'CHANGELOG 里没有任何已发布段（`## [x.y.z] - 日期`）'
+assert released[0] == ver, \
+    f'CHANGELOG 最新发布段是 [{released[0]}]，但代码版本是 {ver}——两者必须同步'
+
+# 只查最新那一段（历史段落允许旧格式）
+start = ch.index(f'## [{released[0]}]')
+nxt = ch.find('\n## [', start + 1)
+body = ch[start:nxt if nxt != -1 else len(ch)]
+heads = re.findall(r'^### (.+)$', body, flags=re.M)
+dupes = sorted({h for h in heads if heads.count(h) > 1})
+assert not dupes, (
+    f'[{released[0]}] 段里小节标题重复出现: {dupes}——'
+    f'读者会以为发了 {len(heads)} 个不同类别，实际是同一类被拆碎了')
+
+# 每条已发布段都要能让人复核：至少要挂上入口文件或脚本
+assert re.search(r'`(scripts|backend|docs|tests)/', body), \
+    f'[{released[0]}] 段里没有任何可复现的路径引用——规则 5 要求每条主张挂得上东西'
+""",
+    ),
+    Gate(
+        id='security-doc-matches-behavior',
+        desc='SECURITY.md 的关键声明必须与实现一致（认证范围 / 回滚门 / 数据外发）',
+        on_fail='block',
+        check=r"""
+# 安全文档写错比不写更糟：它会让人以为某个面已经有防护。
+# 实际发现过两处漂移——SECURITY.md 写「token 配了也只保护非 GET」（实现是
+# GET 也要）、写「回滚绕过危险操作门」（实现仍要求归属证明）。
+#
+# 这里做行为判定：跑一遍真实请求与真实安全门，再断言文档没把防护说小或说大。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+_keys = ('NETMIND_ADMIN_TOKEN', 'NETMIND_ALLOW_ANON_READONLY', 'NETMIND_PROBE_TARGET',
+         'NETMIND_TRUST_PROXY')
+_saved = {k: os.environ.get(k) for k in _keys}
+try:
+    doc = (ROOT / 'SECURITY.md').read_text(encoding='utf-8')
+
+    from fastapi.testclient import TestClient      # noqa: E402
+    from app.main import app                        # noqa: E402
+    from app.core.security import SECURITY          # noqa: E402
+    from app.store import STORE                     # noqa: E402
+
+    # 1) 配了 token 之后，GET 也必须被拦住；/healthz 是唯一公开口
+    os.environ['NETMIND_ADMIN_TOKEN'] = 'gate-token'
+    os.environ.pop('NETMIND_ALLOW_ANON_READONLY', None)
+    with TestClient(app) as c:
+        hdr = {'Authorization': 'Bearer gate-token'}
+        assert c.get('/api/dashboard').status_code in (401, 403), \
+            '配了 token 竟能匿名读 dashboard——安全门形同虚设'
+        assert c.get('/api/dashboard', headers=hdr).status_code == 200, \
+            '带正确 token 反而读不到——认证坏了'
+        assert c.get('/healthz').status_code == 200, '/healthz 应保持公开（探活不该要凭据）'
+        assert c.get('/api/dashboard', headers=hdr).status_code != 401
+    # 文档必须说清楚「GET 也要认证」，否则读的人会以为 dashboard 是公开的
+    assert 'including GET' in doc or '含 GET' in doc or 'including** GET' in doc, \
+        'SECURITY.md 未写明「配了 token 后 GET 同样需要认证」'
+    assert 'every** method' in doc or 'every method' in doc, \
+        'SECURITY.md 对认证范围的表述与实现（所有方法都要认证）不符'
+
+    # 2) 回滚**不**绕过危险操作门：未归属的 route del 必须仍被拒
+    STORE.owned_routes.clear()
+    cmd = 'ip route del 10.0.0.0/24 via 192.0.2.9 dev eth0'
+    denied = SECURITY.check(cmd, allow_dangerous=True)
+    assert denied.success is False, '未登记的路由删除被放行了——回滚成了删任意路由的开关'
+    assert 'does not bypass' in doc or '不绕过' in doc or 'still demands proof' in doc, \
+        'SECURITY.md 未如实说明回滚仍要求归属证明'
+    assert 'bypass the "dangerous command" gate by design' not in doc, \
+        'SECURITY.md 仍写着「回滚绕过危险操作门」——与实现相反'
+    STORE.owned_routes.clear()
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+""",
+    ),
+    Gate(
+        id='no-unused-declared-dependency',
+        desc='声明为运行时依赖的包必须真被用到（死依赖白装白交付，还扩大供应链面）',
+        on_fail='block',
+        check=r"""
+# 死依赖对用户是纯负担：装一次、审计一次、被投毒一次，却换来零功能。
+# 本仓曾声明 recharts@3.8.1 而 src 里从未 import 过它。
+#
+# 只查 dependencies，不查 devDependencies——后者是构建工具，本来就不进
+# src/。也不要求子路径精确匹配：`react-dom` 是以 `react-dom/client` 引入的，
+# 只认全名会把它误判成死依赖。
+import json
+fe = ROOT / 'frontend'
+pkg = json.loads((fe / 'package.json').read_text(encoding='utf-8'))
+deps = pkg.get('dependencies') or {}
+if not deps:
+    pass
+else:
+    srcs = [p for p in (fe / 'src').rglob('*')
+            if p.suffix in {'.js', '.jsx', '.ts', '.tsx'} and p.is_file()]
+    assert srcs, 'frontend/src 下没有任何源文件——扫描范围不对，门禁会永远放行'
+    blob = '\n'.join(p.read_text(encoding='utf-8', errors='ignore') for p in srcs)
+    unused = []
+    for name in sorted(deps):
+        # 子路径导入（react-dom/client）也算用到：按包名做词边界匹配，
+        # 允许后跟 /。
+        if re.search(r'[\'"]' + re.escape(name) + r'(/[\w./-]*)?[\'"]', blob):
+            continue
+        # 构建工具即使只经 npm scripts 调用，也不该待在运行时依赖里
+        unused.append(name)
+    assert not unused, (
+        '声明为运行时依赖但 src/ 里从未 import: ' + ', '.join(unused) +
+        ' —— 死依赖白装白交付，还把供应链面白白扩大。'
+        '构建工具请放 devDependencies。')
+""",
+    ),
+    Gate(
         id='healing-is-guarded',
         desc='自动处置须有显式目标且有次数上限；未配置时如实说未启用，不假装成功',
         on_fail='block',

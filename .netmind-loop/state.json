@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 24,
+  "cycle": 25,
   "phase": "plan",
-  "updated": "2026-10-03T14:02:43+08:00",
+  "updated": "2026-10-03T14:33:24+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,9 +22,9 @@
   "metrics": {
     "tests_collected": 250,
     "gates_total": 22,
-    "gates_passed": 26,
+    "gates_passed": 29,
     "gates_warned": 0,
-    "src_lines": 13499,
+    "src_lines": 13632,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -318,6 +318,18 @@
       "dead_modules": 0,
       "slop_hits": 0,
       "license_present": true
+    },
+    {
+      "cycle": 25,
+      "tests_collected": 250,
+      "gates_total": 22,
+      "gates_passed": 29,
+      "gates_warned": 0,
+      "src_lines": 13632,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
     }
   ],
   "gates": [
@@ -439,8 +451,8 @@
       "title": "CI 补 dsh-compat / codeql / semgrep",
       "priority": "P2",
       "depends_on": [],
-      "status": "pending",
-      "note": "d2d 侧有，netmind 未配"
+      "status": "done",
+      "note": "轮25 部分交付：CI 加 codeql job（python + javascript-typescript 矩阵，security-and-quality 查询集，fail-fast: false）。CodeQL 步骤全为 uses: 形式，ci_audit 只收集 run: 步骤，会正确跳过（已确认）。**dsh-compat / semgrep 未配**——dsh 是内部工具，不进公开仓。"
     },
     {
       "id": "W2-lab-ci",
@@ -482,7 +494,8 @@
       "depends_on": [
         "W0-license-cla"
       ],
-      "status": "pending"
+      "status": "done",
+      "note": "轮25 交付：[Unreleased] → [0.2.0] - 2026-10-03。此前 Unreleased 段有 19 个重复小节、99 条条目，读者读不出这个版本有什么；现按「谎报类 / 正确性类 / 数据耐久性」重组为 Added·Fixed·Security·Changed·Removed，并新增 Known gaps 段（把 8 条已知缺口写在明处）与核查入口索引（28 条门禁、30 个测试文件按主题、实验台脚本、真实数据 fixture、踩坑文档）。用正则比对原文 134 个技术标识，确认一条主张都没丢（剩 21 个为行级实现细节，属 git 历史）。版本号 0.1.0→0.2.0（单源：pyproject 动态取 app.__version__）。新增门禁 release-is-coherent 锁版本同步与「小节不得重复堆叠」，两个反例均验证。"
     },
     {
       "id": "W0-readme-sync",
@@ -491,7 +504,8 @@
       "depends_on": [
         "W0-license-cla"
       ],
-      "status": "pending"
+      "status": "done",
+      "note": "轮25 交付：三条逐条核实。① WebSocket 声明属实且真在推帧，已由 test_websocket_connects_and_streams 断言；同轮修掉它的连接泄漏。② recharts 声明了依赖但 src/ 从未 import——死依赖，已从 package.json 与锁文件移除；vite 从运行时依赖移入 devDependencies。③ 诚实表在轮23-24 已逐项补齐（Dashboard metrics / SLA feasibility / AI recovery review / Healing safety rails），并在轮23-24 修掉了面板里的编造数字。新增门禁 no-unused-declared-dependency，注入 recharts 的反例已验证。"
     },
     {
       "id": "W0-security-gates",
@@ -522,7 +536,8 @@
       "title": "SECURITY.md 补修复时效承诺 + 解决无速率限制/无 RBAC 的商业版方案",
       "priority": "P1",
       "depends_on": [],
-      "status": "pending"
+      "status": "done",
+      "note": "轮25 交付：SECURITY.md 按实现重写。查出两处与实现不符——① 写「token 配了只保护非 GET」，实际配了 token 后**所有方法含 GET** 都要认证（/healthz 除外）② 写「回滚绕过危险操作门」，实际仍要求归属证明（cookie / 路由登记）——第二条会把回滚能力误读成「可删任意流表」。另补：响应时效承诺表（确认 7 天 / 定级 14 天 / 高危修复 30 天 / 中危 90 天）、「尚不具备」的诚实声明（无 CVE 流程、无赏金、无签名产物）、congestion 无自动回滚、单 worker、限流仅进程内。新增门禁 security-doc-matches-behavior 做行为判定，注入旧文案的反例已验证。"
     },
     {
       "id": "W2-config-diff",
@@ -739,6 +754,14 @@
     {
       "id": "B4-websocket-and-fabricated-ui",
       "title": "面板数字去编造 + SLA 预测修复 + WebSocket 泄漏",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "W0-release-and-security-doc",
+      "title": "发版 0.2.0 + SECURITY.md 按实现重写 + 死依赖清理 + CodeQL",
       "priority": "P1",
       "depends_on": [],
       "status": "done",
@@ -961,6 +984,14 @@
       "shipped": "新增 core/heal_guard.py，回答自动处置必须先答的两个问题——动哪块、动几次。(1) 动哪块：新增 NETMIND_HEAL_IFACE（link_down 另需 NETMIND_HEAL_BACKUP_ROUTE），不配则自动处置处于关闭状态并如实说明缺哪一项。**不猜接口**——处置命令形如 tc qdisc del dev {iface} root，猜错就等于对错误的口下手，在多接口真机上那可能正是管理口；项目对设备采集一直坚持「不知道就如实拒绝」，处置更不该猜。(2) 动几次：连续失败按 (诊断类型, 接口) 独立记账，默认上限 3，触顶停止自动动作转人工；成功清零、冷却期后旧账作废、干跑不消耗预算（设备没被动过不算「试过」）。计数**落盘**是必需的——只在内存里的话重启一次就把上限绕过去了。修 workflow.py 的假成功：HealingAgent 步骤状态改为跟着处置结果走，区分「真做成」(success) /「等前置条件」(waiting：未配置目标、次数触顶) /「真失败」(failed)。实测：未配接口时闭环如实报未启用且步骤记 waiting；配了接口后闭环真能生成并下发 tc qdisc del dev eth0 root——上一轮的自愈第一次从主路径真正跑通。真机复验仍通过（150.425→0.127ms，设备侧 qdisc 读回 noqueue）。过程中发现并修掉一处自己的 bug：重试记账写在了 HealingReport 构造之后，pydantic 构造时已拷走 improvement 字典，报告里看不到计数——账记了但读者看不到。另更新一条既有测试的措辞断言（「需要参数」→「未配置」：缺的不是某次调用的参数，而是系统级前置条件，说成前者会让人以为补个参数就能自愈），并给另外三条断言补上「未产生任何设备侧变更」——报告要能确认设备确实没被动过。DEPLOY.md 新增第 8 节「开启自动处置（默认关闭）」，含三个变量、上限语义、干跑不消耗预算的原因，以及 congestion 无自动回滚的说明。新增门禁 healing-is-guarded，已注入反例验证它有牙齿。测试 240→250，门禁 25→26 条全绿。",
       "at": "2026-10-03T14:02:30+08:00",
       "based_on": "3371c6a"
+    },
+    {
+      "cycle": 25,
+      "id": "W0-release-and-security-doc",
+      "title": "发版 0.2.0 + SECURITY.md 按实现重写 + 死依赖清理 + CodeQL",
+      "shipped": "发版 [0.2.0]：把 19 个碎片小节、99 条条目重组为 Added / Fixed（再分谎报类·正确性类·数据耐久性）/ Security / Changed / Removed，新增 Known gaps 段把 8 条已知缺口写在明处，以及核查入口索引（28 条门禁按领域、30 个测试文件按主题、实验台脚本、10 个真实数据 fixture、4 份踩坑文档）。用正则比对原文 134 个技术标识确认无丢失，剩余 21 个为行级实现细节属 git 历史。版本号 0.1.0→0.2.0（单源）。SECURITY.md 按实现重写：查出两处不符——认证范围（文档说只保护非 GET，实际配了 token 后所有方法含 GET 都要认证）与回滚门（文档说绕过危险操作门，实际仍要求 cookie / 路由登记归属证明）。后者尤其有害：会把回滚读成「能删任意流表」。补响应时效承诺（确认 7 天 / 定级 14 天 / 高危 30 天 / 中危 90 天）与「尚不具备」声明（无 CVE 流程、无赏金、无签名产物），并把单 worker、限流仅进程内、congestion 无自动回滚一并写明。清死依赖：recharts@3.8.1 声明了但 src/ 从未 import，已从 package.json 与锁文件移除；vite 是构建工具却待在运行时依赖，移入 devDependencies。构建与 12 个前端测试均复跑通过。CI 加 codeql job（python + javascript-typescript 矩阵）。新增三条门禁：release-is-coherent（版本与 CHANGELOG 同步 + 小节不得重复堆叠）、security-doc-matches-behavior、no-unused-declared-dependency，每条都用注入反例验证过有牙齿。门禁 26→29 条。本轮还出了一次自己的事故：验证新门禁时手搓的 namespace 比真实执行器宽松（多塞了 sys），standalone 绿灯而 run_gates 里报 NameError；且我 grep 只看 PASS/FAIL，把 ERR 行漏掉，查了两轮才发现。已改为今后一律用 gates.run_one() 验证新门禁。测试 250 全绿，去 AI 味门 0 命中。",
+      "at": "2026-10-03T14:33:24+08:00",
+      "based_on": "9c2d3ee"
     }
   ],
   "retro": [
@@ -1371,17 +1402,25 @@
       "root_cause": "重试记账写在了 HealingReport(...) 构造之后。pydantic 在构造时会把 improvement 这个 dict 拷走，之后再往原 dict 赋值，报告里根本看不到——计数确实记了，但读报告的人看不到，等于没有。这类「副作用发生在快照之后」的顺序错误很隐蔽：功能看起来是好的，只是把证据留在了没人看的地方。",
       "fix": "把记账移到构造之前；测试直接断言报告里的 attempts 字段随次数递增，而不只断言外部 store 的计数——只测后者会漏掉这个 bug。",
       "at": "2026-10-03T14:17:00+08:00"
+    },
+    {
+      "cycle": 25,
+      "gate": "release-is-coherent",
+      "on_fail": "block",
+      "root_cause": "新门禁 standalone 跑是 PASS，进 `run_gates()` 却报 NameError——而门禁输出里我只 grep 了 PASS/FAIL，ERR 行没被看见，于是「28/29 通过、1 条未通过」里那条根本没在列表上，看了两轮才发现。根因是我手搓的验证 namespace（手动塞了 ROOT/re/json/subprocess/sys）比真实执行器宽松：内联检查的实际命名空间只有 ROOT/re/json/subprocess，sys 得自己 import。验证工具比被验证对象更宽松，比不验证更危险——它给的是假的绿灯。",
+      "fix": "门禁内自行 import sys；今后验证新门禁一律走 gates.run_one() 而不是手搓 namespace——用与生产不同的路径验证生产代码，验出来的绿灯不作数。同类教训上一轮出现过（没牙齿的门禁）：门禁与验证工具本身都要证伪。",
+      "at": "2026-10-03T14:50:00+08:00"
     }
   ],
-  "gates_total": 26,
+  "gates_total": 29,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T14:02:24+08:00"
+    "planned_at": "2026-10-03T14:33:17+08:00"
   },
-  "based_on": "3371c6a",
+  "based_on": "9c2d3ee",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
