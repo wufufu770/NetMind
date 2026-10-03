@@ -3,6 +3,11 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- 前端展示层的取值决策抽到 `frontend/src/lib/display.js`（`frontend/src/lib/auth.js`
+  同轮新增）：指标取值、健康分、健康环、验证摘要、置信度——都是「用户被告知什么」
+  的决策点，此前散在 `App.jsx` 里一行测试都没有。补 20 个用例，前端 12→30
+
 ### Fixed
 - **配了 `NETMIND_ADMIN_TOKEN` 之后网页面板全线 401**（实测确认）。前端 `request()`
   发的是 `X-NetMind-Admin` 自定义头，而后端只读 `Authorization: Bearer`——

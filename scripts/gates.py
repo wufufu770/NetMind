@@ -473,6 +473,23 @@ finally:
     STORE.executions.update({e.execution_id: e for e in ex})
     STORE.telemetry.clear(); STORE.telemetry.extend(tel)
     STORE.logs.clear(); STORE.logs.extend(logs)
+
+# 7) 前端同一件事的另一端：面板与验证摘要的取值决策必须是**被测过的**函数。
+#    此前它们散在 App.jsx 里一行都没测，healthScore 那处
+#    `metrics.sla || (packet_loss < 0.01 ? 96 : 82)` 就长期躺在那儿没人发现。
+fe = ROOT / 'frontend' / 'src'
+app_jsx = (fe / 'App.jsx').read_text(encoding='utf-8')
+code_only = '\n'.join(l.split('//')[0] for l in app_jsx.splitlines())
+for pattern, why in [
+    (r'\|\|\s*\([^)]*\?[^:]+:\s*\d+\s*\)', '用 || 加三元反推一个数字当指标'),
+    (r'sla_feasible:\s*true', '写死 SLA 可行性——把「未知」显示成「可行」'),
+    (r'sla_confidence:\s*1\b', '写死 100% 置信度'),
+]:
+    assert not re.search(pattern, code_only), f'App.jsx 又出现了「{why}」的写法'
+for fn in ('healthScore', 'metricValue', 'summaryCell', 'confidenceText'):
+    assert f'{{ {fn}(' in app_jsx or f'{fn}(' in app_jsx, f'App.jsx 未使用被测函数 {fn}()'
+assert (fe / 'lib' / 'display.js').exists() and (fe / 'lib' / 'display.test.js').exists(), \
+    '显示层取值逻辑必须留在 lib/display.js 并有测试；放回 App.jsx 就等于退回零覆盖'
 """,
     ),
     Gate(

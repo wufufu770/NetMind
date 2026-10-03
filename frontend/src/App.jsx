@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { compactLabel, displayToolName, executionLabel, localizeJsonText } from './lib/format.js';
 import { authHeaders, describeAuthFailure } from './lib/auth.js';
+import { confidenceText, healthRing, healthScore, metricTone, metricValue, summaryCell } from './lib/display.js';
 import './style.css';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -436,22 +437,24 @@ function StatCard({ label, value, unit, tone = 'neutral', hint, subMetrics, icon
   const content = <>
     <span className="stat-icon"><Icon size={18} /></span>
     <small>{label}</small>
-    <strong>{value ?? '--'}{unit && <em>{unit}</em>}</strong>
+    <strong>{metricValue(value)}{unit && <em>{unit}</em>}</strong>
     {subMetrics ? <span className="sub-metrics">{subMetrics}</span> : <span>{hint}</span>}
   </>;
   return onClick ? <button type="button" className={`stat-card ${tone}`} onClick={onClick}>{content}</button> : <div className={`stat-card ${tone}`}>{content}</div>;
 }
 
 function HealthRing({ score }) {
-  const safe = Number.isFinite(Number(score)) ? Math.max(0, Math.min(100, Number(score))) : 0;
-  const dash = `${safe} ${100 - safe}`;
+  // 没有 SLO 目标就算不出健康分：画空环，文字显示 '--'。
+  // 两者若都从 raw score 推，空环会显示成「0 分」——把「没测」说成「测了 0 分」。
+  const { drawn, label } = healthRing(score);
+  const dash = `${drawn} ${100 - drawn}`;
   return (
-    <div className="health-ring" role="img" aria-label={`健康分 ${safe}`}>
+    <div className="health-ring" role="img" aria-label={`健康分 ${label}`}>
       <svg viewBox="0 0 42 42">
         <circle className="ring-bg" cx="21" cy="21" r="15.9" />
         <circle className="ring-fg" cx="21" cy="21" r="15.9" strokeDasharray={dash} />
       </svg>
-      <div><span>{score ?? '--'}</span><small>健康分</small></div>
+      <div><span>{label}</span><small>健康分</small></div>
     </div>
   );
 }
@@ -465,7 +468,7 @@ function Dashboard({ setPage, setToast, refreshKey }) {
   // 健康分没有实测来源：SLA 达成率需要事先约定的 SLO 目标，项目里没有这个
   // 目标（后端因此返回 null）。原来这里在 sla 为空时用丢包率反推 96 / 82，
   // 等于凭一个阈值编一个最显眼的数字。算不出来就显示 --。
-  const healthScore = Number.isFinite(Number(metrics.sla)) ? Number(metrics.sla) : null;
+  const score = healthScore(metrics.sla);
   const alertCount = risks.length;
 
   return (
@@ -482,13 +485,13 @@ function Dashboard({ setPage, setToast, refreshKey }) {
             <button type="button" onClick={reload}><RefreshCw size={16} />刷新</button>
           </div>
         </div>
-        <HealthRing score={loading ? null : healthScore} />
+        <HealthRing score={loading ? null : score} />
       </div>
 
       {error && <InlineError text={error} />}
       <div className="metrics-grid compact three">
         <StatCard label="SLA 达成率" value={metrics.sla} unit="%" tone="neutral" hint={metrics.sla_reason || '未定义 SLO 目标'} icon={Gauge} onClick={() => setPage('verification')} />
-        <StatCard label="端到端延迟" value={metrics.latency_ms} unit="ms" tone={metrics.latency_ms > 50 ? 'warn' : 'ok'} subMetrics={`丢包率 ${((Number(metrics.packet_loss || 0)) * 100).toFixed(2)}% · 吞吐 ${metrics.throughput_mbps ?? '--'} Mbps`} icon={Activity} onClick={() => setPage('telemetry')} />
+        <StatCard label="端到端延迟" value={metrics.latency_ms} unit="ms" tone={metricTone(metrics.latency_ms, { warnAbove: 50 })} subMetrics={`丢包率 ${((Number(metrics.packet_loss || 0)) * 100).toFixed(2)}% · 吞吐 ${metrics.throughput_mbps ?? '--'} Mbps`} icon={Activity} onClick={() => setPage('telemetry')} />
         <StatCard label="活跃告警" value={alertCount} tone={alertCount ? 'warn' : 'ok'} hint={alertCount ? '需要处理' : '暂无异常'} icon={AlertTriangle} onClick={() => setPage(alertCount ? 'verification' : 'logs')} />
       </div>
 
@@ -1055,16 +1058,18 @@ function PolicyTable({ policySet }) {
 }
 
 function VerificationSummary({ report }) {
+  // 每格都走 summaryCell：后端没给的判断显示「未知」，
+  // 不会因为前端写死 true 就显示成「可行 100%」。
+  const cell = (v, labels) => summaryCell(v, labels);
   const items = [
     ['验证结论', report.passed ? '通过' : '未通过', report.passed ? 'ok' : 'warn'],
-    // 未提供的字段如实显示「未知」，不硬编码成功
-    ['可达性', report.reachable === undefined ? '未知' : (report.reachable ? '可达' : '不可达'), report.reachable ? 'ok' : (report.reachable === undefined ? 'neutral' : 'error')],
-    ['SLA 可行性', report.sla_feasible === undefined ? '未知' : (report.sla_feasible ? '可行' : '不可行'), report.sla_feasible || report.sla_feasible === undefined ? (report.sla_feasible === undefined ? 'neutral' : 'ok') : 'warn'],
-    ['安全检查', report.security_passed === undefined ? '未知' : (report.security_passed ? '通过' : '阻断'), report.security_passed ? 'ok' : (report.security_passed === undefined ? 'neutral' : 'error')],
-    ['回滚计划', report.rollback_ready === undefined ? '未知' : (report.rollback_ready ? '就绪' : '缺失'), report.rollback_ready ? 'ok' : (report.rollback_ready === undefined ? 'neutral' : 'warn')],
-    ['置信度', report.sla_confidence === undefined ? '—' : `${Math.round((report.sla_confidence || 0) * 100)}%`, 'neutral'],
+    ['可达性', cell(report.reachable, { yes: '可达', no: '不可达' })],
+    ['SLA 可行性', cell(report.sla_feasible, { yes: '可行', no: '不可行' })],
+    ['安全检查', cell(report.security_passed, { yes: '通过', no: '阻断' })],
+    ['回滚计划', cell(report.rollback_ready, { yes: '就绪', no: '缺失' })],
+    ['置信度', confidenceText(report.sla_confidence), 'neutral'],
   ];
-  return <div className="summary-grid">{items.map(([k, v, tone]) => <div key={k} className={tone}><small>{k}</small><b>{v}</b></div>)}</div>;
+  return <div className="summary-grid">{items.map(([k, v, tone]) => <div key={k} className={tone || 'neutral'}><small>{k}</small><b>{typeof v === 'string' ? v : v.text}</b></div>)}</div>;
 }
 
 function IssueList({ issues }) {
