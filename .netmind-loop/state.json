@@ -2,9 +2,9 @@
   "version": 1,
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
-  "cycle": 26,
+  "cycle": 27,
   "phase": "plan",
-  "updated": "2026-10-03T15:00:30+08:00",
+  "updated": "2026-10-03T15:34:13+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,9 +22,9 @@
   "metrics": {
     "tests_collected": 267,
     "gates_total": 22,
-    "gates_passed": 30,
+    "gates_passed": 31,
     "gates_warned": 0,
-    "src_lines": 13869,
+    "src_lines": 13954,
     "generic_names": 195,
     "dead_modules": 0,
     "slop_hits": 0,
@@ -338,6 +338,18 @@
       "gates_passed": 30,
       "gates_warned": 0,
       "src_lines": 13869,
+      "generic_names": 195,
+      "dead_modules": 0,
+      "slop_hits": 0,
+      "license_present": true
+    },
+    {
+      "cycle": 27,
+      "tests_collected": 267,
+      "gates_total": 22,
+      "gates_passed": 31,
+      "gates_warned": 0,
+      "src_lines": 13954,
       "generic_names": 195,
       "dead_modules": 0,
       "slop_hits": 0,
@@ -794,6 +806,14 @@
       "depends_on": [],
       "status": "done",
       "note": "本轮由 plan 直接指定，未预先登记在 backlog"
+    },
+    {
+      "id": "C9-frontend-auth-contract",
+      "title": "修一个让网页面板在文档推荐的部署下全线 401 的缺陷",
+      "priority": "P1",
+      "depends_on": [],
+      "status": "done",
+      "note": "本轮由 plan 直接指定，未预先登记在 backlog"
     }
   ],
   "deferred": [
@@ -1028,6 +1048,14 @@
       "shipped": "新增 NETMIND_READONLY_TOKEN：按**方法**分权，GET/HEAD/OPTIONS 放行，POST/PUT/PATCH/DELETE 返回 403。两处容易做错的点都处理了——① 写操作用 403 而非 401：凭据有效、只是角色不够，混成 401 会让客户端以为该换凭据而不是找谁申请；② verify_any 比对多个候选时**不短路**，逐个比完再返回：早退会让「命中第几个」体现在响应时间上，而只读与管理员权限不同，能区分出来本身就是可利用信息。边界行为均有测试钉住：换管理员 token 不作废只读凭据、两个变量同值时取管理员（要的是能写，给个写不了的配置更糟）、只配只读不配管理员 = 明确的只读部署、两个都不配时默认安全不放宽（远程仍 403）、公开口无需凭据。测试新增 17 例（250→267）。新增门禁 readonly-credential-is-enforced，对两种反例分别验证：把只读凭据的写限制整个去掉（报「只读角色形同虚设」）、把写操作的 403 降级成 401（报「凭据有效、权限不足」）。文档同步：SECURITY.md 的「无只读角色」改为说明「仅两档、档内不再细分」、DEPLOY.md 第 1 节补用法与三条注意事项、README 诚实表新增 Credential tiers 一行。**如实登记了 UI 限制**：前端目前不识别角色，只读用户仍会看到写按钮、点了才知 403；拦截在服务端权限不会被绕过，但界面上看不出身份，已列为待办。门禁 29→30 条全绿，去 AI 味门 0 命中。",
       "at": "2026-10-03T15:00:13+08:00",
       "based_on": "947ee61"
+    },
+    {
+      "cycle": 27,
+      "id": "C9-frontend-auth-contract",
+      "title": "修一个让网页面板在文档推荐的部署下全线 401 的缺陷",
+      "shipped": "修认证头不一致：前端改发标准 `Authorization: Bearer`，实测 X-NetMind-Admin → 401、Authorization → 200，并按前端 auth.js 的真实输出打过真后端确认。删掉写死的兜底凭据 'netmind-local-admin'——后端不认它所以只是无效字符串，但它离「一份所有人都知道的固定默认口令」只差后端哪天认了这个头。凭据逻辑从 App.jsx 抽到 frontend/src/lib/auth.js（薄壳里那段没测试、也没法单测），补 8 个测试，钉住「发 Authorization: Bearer」「无任何默认凭据」「401 与 403 提示不混」。前端测试 12→20。401 与 403 的提示分开说：前者是「没给或给错凭据」，后者是「凭据有效但角色不够」——混成一句「请求失败」，使用者既不知道该配 token 还是该换角色，只能反复重试。浏览器端配凭据的写法补进 DEPLOY.md（含只读凭据）。新增门禁 frontend-auth-contract：静态查旧头与硬编码凭据、行为上用前端 auth.js 真正产出的头去打真后端、反向断言后端不认旧头、并要求前端测试里有断言钉住 Authorization。已注入「改回 X-NetMind-Admin + 硬编码凭据」的反例验证。顺带修两处门禁自身缺陷：copy_lint 把 HTTP 状态码误报为无源数字（门禁一旦误报，人就会开始忽略它），已加「3 位、100–599、不带单位」豁免，并用自测行验证带单位的真统计量仍会被抓；docs/DEPLOY.md 根本不在 copy_lint 扫描清单里，一份客户可见、满是命令与数字的文档没被覆盖，已纳入。门禁 30→31 条全绿，后端 267 测试、前端 20 测试、构建通过。",
+      "at": "2026-10-03T15:34:13+08:00",
+      "based_on": "2e61aba"
     }
   ],
   "retro": [
@@ -1454,17 +1482,33 @@
       "root_cause": "SECURITY.md 早写「没有只读角色」，而这个缺口被当成纯待办放着。其实它是最容易补、也最贴近真实用法的一条：自托管网络工具最常见的诉求就是「让另一个人能看运行态势，但不许他下发配置变更」，而当时只有匿名只读与全权 token 两个极端。更值得记的是实现时差点做错的两点：① 只读凭据写操作返回 401 —— 凭据有效、只是角色不够，混成 401 会让客户端以为该换凭据，正确是 403；② 比对两个 token 时早退 —— 「命中第几个候选」会体现在响应时间上，只读与管理员权限不同，能区分本身就是可利用信息。",
       "fix": "新增 NETMIND_READONLY_TOKEN，按方法分权（SAFE_METHODS 放行，写操作 403）；verify_any 不短路，逐个候选都比完再返回；两个变量同值时取管理员（要的是能写，给个写不了的配置更糟）。门禁 readonly-credential-is-enforced 对 401/403 混淆与时序短路两种反例都验过。",
       "at": "2026-10-03T15:05:00+08:00"
+    },
+    {
+      "cycle": 27,
+      "gate": "frontend-auth-contract",
+      "on_fail": "block",
+      "root_cause": "前端 `request()` 发的是 `X-NetMind-Admin` 自定义头，而后端只读 `Authorization: Bearer`。实测确认：按 docs/DEPLOY.md 第 1 节配了 NETMIND_ADMIN_TOKEN 之后，网页面板的每个请求都是 401，整个界面不可用——而那正是文档推荐的部署方式。根因不是笔误，是这段逻辑埋在 App.jsx 第 174 行、1859 行文件里，**没有任何测试碰过**，后端改了认证方式也没人发现前端对不上。还有一半更隐蔽：同一行有个写死的兜底凭据 'netmind-local-admin'，后端不认它所以只是无效字符串，但它离「一份所有人都知道的固定口令」只差后端哪天认了这个头。",
+      "fix": "认证头改为标准 Authorization: Bearer，兜底凭据删除（取不到就是取不到）；凭据逻辑抽到 frontend/src/lib/auth.js 并补 8 个测试；401 与 403 的提示分开说——前者是没给/给错凭据，后者是凭据有效但角色不够，混成一句「请求失败」会让人反复重试。新增门禁 frontend-auth-contract：静态查旧头与硬编码凭据，行为上用前端 auth.js 真正产出的头去打真后端，反向断言后端不认旧头；并要求前端测试里有断言钉住 Authorization。",
+      "at": "2026-10-03T15:30:00+08:00"
+    },
+    {
+      "cycle": 27,
+      "gate": "no-ai-smell",
+      "on_fail": "block",
+      "root_cause": "两处门禁自身的缺陷。① copy_lint 把 HTTP 状态码当成「无源数字」误报——文档里说「401 而不是 403」是在引用协议常量，不是声称统计量。门禁一旦开始误报，人就会开始忽略它，那比漏检更糟。② docs/DEPLOY.md 根本不在 copy_lint 的扫描清单里——一份客户可见、满是命令与数字的文档没被密度门覆盖，而清单是手写的，加文档时没人想起同步。",
+      "fix": "NOT_A_CLAIM_RE 增加「3 位、100–599、不带单位」的豁免：带单位的（200ms / 50%）仍会被抓，已用自测行验证过没削弱检测；把 docs/DEPLOY.md 纳入扫描清单。",
+      "at": "2026-10-03T15:32:00+08:00"
     }
   ],
-  "gates_total": 30,
+  "gates_total": 31,
   "next_round": {
     "id": "W2-multivendor",
     "title": "多厂商真实接入（cisco-ios / juniper-junos / arista-eos）",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-03T15:00:06+08:00"
+    "planned_at": "2026-10-03T15:34:04+08:00"
   },
-  "based_on": "947ee61",
+  "based_on": "2e61aba",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"

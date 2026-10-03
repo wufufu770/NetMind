@@ -41,6 +41,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { compactLabel, displayToolName, executionLabel, localizeJsonText } from './lib/format.js';
+import { authHeaders, describeAuthFailure } from './lib/auth.js';
 import './style.css';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -171,8 +172,13 @@ function normalizeList(data) {
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) };
-  const adminToken = localStorage.getItem('netmind-admin-token') || import.meta.env.VITE_ADMIN_TOKEN || 'netmind-local-admin';
-  if (adminToken) headers['X-NetMind-Admin'] = headers['X-NetMind-Admin'] || adminToken;
+  // 认证走 `Authorization: Bearer`——后端只认这个。此前发的是 `X-NetMind-Admin`
+  // 自定义头，后端根本不读，于是配了 NETMIND_ADMIN_TOKEN 之后面板全线 401。
+  // 也没有默认凭据：原来那个写死的 'netmind-local-admin' 只是一串无效字符串，
+  // 但它离「一份所有人都知道的固定凭据」只差后端认不认这个头。
+  const kind = options.credentialKind || 'admin';
+  Object.assign(headers, authHeaders(kind, localStorage, import.meta.env));
+  delete options.credentialKind;
   const init = { ...options, headers };
   if (init.body && typeof init.body !== 'string') {
     init.body = JSON.stringify(init.body);
@@ -182,6 +188,11 @@ async function request(path, options = {}) {
   const contentType = res.headers.get('content-type') || '';
   const payload = contentType.includes('application/json') ? await res.json() : await res.text();
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      const err = new Error(describeAuthFailure(res.status, payload));
+      err.status = res.status;
+      throw err;
+    }
     const message = typeof payload === 'string' ? payload : payload.detail || JSON.stringify(payload);
     throw new Error(message);
   }

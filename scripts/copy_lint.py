@@ -22,6 +22,7 @@ CUSTOMER_FACING = [
     'docs/ARCHITECTURE.md',
     'docs/API.md',
     'SECURITY.md',
+    'docs/DEPLOY.md',
     'CHANGELOG.md',
     'docs/closed-loop-run-report.md',
 ]
@@ -76,6 +77,11 @@ NOT_A_CLAIM_RE = re.compile(
     r'|\bv?\d+\.\d+(?:\.\d+)?\b'             # 版本号
     r'|\b[0-9a-f]{7,40}\b'                    # commit SHA
     r'|\b\d{4,5}\b(?=\s*$)'                   # 行尾裸长整数（多为年份/端口）
+    # HTTP 状态码：文档里说「401 而不是 403」是在引用协议常量，不是声称某个统计量。
+    # NUM_RE 的 `\b\d[\d,]{2,}\b` 会把任何三位数当成待核查数字，于是这类引用
+    # 全被误报。门禁一旦开始误报，人就会开始忽略它——那比漏检更糟。
+    # 判据是「3 位、落在 100–599、不带单位」：带单位的（200ms / 50%）仍会被抓。
+    r'|\b[1-5]\d{2}\b(?!\s*(?:%|ms|s\b|秒|倍|x|×|人日|人天))'
 )
 # 来源证据：markdown 链接、行内代码、路径、commit、命令
 EVIDENCE_RE = re.compile(

@@ -40,6 +40,74 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='frontend-auth-contract',
+        desc='前端的认证头必须与后端一致，且不得有写死的默认凭据',
+        on_fail='block',
+        check=r"""
+# 实测过的严重缺陷：前端 `request()` 发的是 `X-NetMind-Admin` 自定义头，
+# 而后端只读 `Authorization: Bearer`。结果是按 `docs/DEPLOY.md` 第 1 节配了
+# `NETMIND_ADMIN_TOKEN` 之后，**网页面板的每个请求都是 401，界面完全不可用**——
+# 而那正是文档推荐的部署方式。
+#
+# 更隐蔽的一半：原代码还有一份写死的兜底凭据 `'netmind-local-admin'`。
+# 后端不认它所以只是无效字符串，但它离「一份所有人都知道的固定默认凭据」
+# 只差后端哪天认了这个头。
+import os, re, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+_keys = ('NETMIND_ADMIN_TOKEN', 'NETMIND_READONLY_TOKEN', 'NETMIND_ALLOW_ANON_READONLY',
+         'NETMIND_TRUST_PROXY')
+_saved = {k: os.environ.get(k) for k in _keys}
+try:
+    fe = ROOT / 'frontend' / 'src'
+    app_jsx = (fe / 'App.jsx').read_text(encoding='utf-8')
+    # 去掉注释后再查：注释里提到旧头名是为了说明为什么改，不该被当成残留
+    code_only = '\n'.join(l.split('//')[0] for l in app_jsx.splitlines())
+
+    # 1) 不得有自造的认证头。后端只读 authorization，前端必须与之对齐。
+    for banned in ('X-NetMind-Admin', 'X-Admin-Token', 'X-NetMind-Token'):
+        assert banned not in code_only, \
+            f'前端又出现了 {banned}——后端只读 `Authorization: Bearer`，' \
+            f'发别的头等于配了 token 之后面板全线 401'
+
+    # 2) 不得有写死的默认凭据
+    assert not re.search(r"['\"]netmind-local-admin['\"]", code_only), \
+        '前端又有写死的默认凭据——等于一份所有人都知道的固定口令'
+    assert not re.search(r"localStorage[^\n]*\|\|[^\n]*['\"][A-Za-z0-9_-]{8,}['\"]", code_only), \
+        '凭据取不到时又回退到某个字符串常量了'
+
+    # 3) 行为判定：用前端 auth.js 真正产出的头去打真后端
+    auth_js = (fe / 'lib' / 'auth.js').read_text(encoding='utf-8')
+    assert 'Authorization' in auth_js and 'Bearer' in auth_js, \
+        'frontend/src/lib/auth.js 不再发送 Authorization: Bearer'
+
+    os.environ['NETMIND_ADMIN_TOKEN'] = 'gate-admin'
+    os.environ['NETMIND_READONLY_TOKEN'] = 'gate-ro'
+    os.environ.pop('NETMIND_ALLOW_ANON_READONLY', None)
+    os.environ.pop('NETMIND_TRUST_PROXY', None)
+    import app.core.access as _access            # noqa: E402
+    _access._client_host = lambda request: '203.0.113.9'
+    from fastapi.testclient import TestClient    # noqa: E402
+    from app.main import app as fastapi_app      # noqa: E402
+    with TestClient(fastapi_app) as c:
+        assert c.get('/api/dashboard', headers={'Authorization': 'Bearer gate-admin'}).status_code == 200, \
+            '带 Bearer 凭据仍读不到面板'
+        assert c.get('/api/dashboard', headers={'X-NetMind-Admin': 'gate-admin'}).status_code == 401, \
+            '后端竟开始接受 X-NetMind-Admin 了——前端与后端的契约说明已不同步，需一并更新'
+
+    # 4) 前端测试必须真的覆盖了这段
+    tests = '\n'.join(p.read_text(encoding='utf-8')
+                      for p in (fe / 'lib').glob('*.test.js'))
+    assert 'Authorization' in tests, \
+        '没有测试断言前端发的是 Authorization: Bearer——这类不匹配正是靠它漏掉的'
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+""",
+    ),
+    Gate(
         id='readonly-credential-is-enforced',
         desc='只读凭据能读不能写；写操作须 403（凭据有效但权限不足）而非 401',
         on_fail='block',

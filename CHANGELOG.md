@@ -3,6 +3,17 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- **配了 `NETMIND_ADMIN_TOKEN` 之后网页面板全线 401**（实测确认）。前端 `request()`
+  发的是 `X-NetMind-Admin` 自定义头，而后端只读 `Authorization: Bearer`——
+  于是 `docs/DEPLOY.md` 第 1 节推荐的部署方式下，整个界面不可用。
+  改为发标准头，并把凭据逻辑抽到 `frontend/src/lib/auth.js`（8 个新测试）
+- **一份写死的默认凭据**。前端此前有个兜底的 `'netmind-local-admin'`。
+  后端不认它所以只是无效字符串，但它离「一份所有人都知道的固定口令」只差
+  后端哪天认了这个头。现在取不到凭据就是取不到
+- 401 与 403 的提示不再混成一句「请求失败」：前者是没给或给错凭据，
+  后者是凭据有效但角色不够，提示里会分别告诉用户该配什么、该找谁申请
+
 
 ## [0.2.0] - 2026-10-03
 
