@@ -52,12 +52,28 @@ def history():
 def replay(execution_id: str):
     print(_get(f'/api/executions/{execution_id}/replay'))
 
+def format_log_line(row: dict) -> str:
+    """一行日志的显示格式。
+
+    全部用 .get：持久化的旧记录可能缺字段，`row['x']` 会直接 KeyError 崩掉，
+    而 CLI 崩在一个坏记录上，用户看到的是「命令坏了」而不是「这条记录旧」。
+    来源缺失时写「来源未标注」——不替它编一个 system（与前端 display.js 同一套口径）。
+    """
+    return (f"{row.get('ts', '-')} [{row.get('level', '-')}] "
+            f"{row.get('source') or '来源未标注'}: {row.get('message', '')}")
+
+
 @app.command()
 def logs(limit: int=30, q: str=''):
     path='/api/logs/search' if q else '/api/logs'
     rows=_get(path, limit=limit, q=q) if q else _get(path, limit=limit)
+    # 空结果必须说一声。此前循环一次都不执行、退出码 0、stdout 全空——
+    # 使用者无法区分「命令失败了」与「确实没有日志」。
+    if not rows:
+        print(f'没有匹配的日志（limit={limit}' + (f", q={q}" if q else '') + '）')
+        return
     for row in rows:
-        print(f"{row['ts']} [{row['level']}] {row['source']}: {row['message']}")
+        print(format_log_line(row))
 
 @app.command()
 def report(execution_id: str):

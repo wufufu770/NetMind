@@ -161,6 +161,16 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`netmind logs` 在没有日志时退出 0、stdout 全空**。循环体一次都不执行，
+  使用者无法区分「命令失败了」与「确实没有日志」——CLI 是对用户说话的那一层，
+  沉默在那一层最贵。现在空结果明确说明（含 limit 与查询词）
+- CLI 打印日志行时用 `row['x']` 硬取字段：持久化的旧记录若缺某个字段，
+  KeyError 会让整条命令崩掉，而用户看到的是「命令坏了」而不是「这条记录旧」。
+  改为 `format_log_line()` 纯函数 + 缺字段兜底，来源缺失写「来源未标注」
+  （与前端 `display.js` 同一套口径，不在两处各编一次来源）
+- 门禁 `cli-never-silent`：空结果必须说一声、遍历型命令要有空态分支、
+  不得硬取字段、CLI 与前端的「来源缺失」措辞必须一致。两个反例均已注入证伪
+
 - 折线坐标的第一版把值域映射错了一个 band，y 算出 158 越出视口；clamp 区间也
   设成 `[floor, height]`，把 12.4 与 11.8 两个不同的值压成同一个 y，图看起来
   「没变化」——**clamp 是越界的安全网，不该毁掉带子内的有效数据**。两条都是补

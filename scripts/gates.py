@@ -65,6 +65,46 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='cli-never-silent',
+        desc='CLI 不得以退出 0 + 空 stdout 结束——沉默让使用者无法区分失败与无数据',
+        on_fail='block',
+        check=r"""
+# CLI 是一层薄适配器，但它是对用户说话的那一层。在那一层，「沉默」最贵：
+# 命令退出 0、stdout 全空，使用者无法区分「命令失败了」与「确实没有数据」。
+#
+# 实测：`netmind logs` 在空 store 上循环一次都不执行，退出 0、零输出。
+import json
+import subprocess
+import sys
+
+# 注意：这里的探针用 chr(10).join 拼出来而不是 r'...'——
+# 嵌套三引号会把本检查体提前闭合。
+_probe = chr(10).join(['import json, sys', "sys.path.insert(0, 'backend')", 'import app.cli as m', 'm._get = lambda *a, **k: []', 'from typer.testing import CliRunner', "res = CliRunner().invoke(m.app, ['logs', '--limit', '3'])", "print(json.dumps({'exit_code': res.exit_code, 'stdout': res.stdout}, ensure_ascii=False))"])
+_r = subprocess.run([sys.executable, '-c', _probe], cwd=ROOT,
+                    capture_output=True, text=True, timeout=180)
+assert _r.returncode == 0, f'探测脚本跑不起来: {_r.stderr[-300:]}'
+_d = json.loads(_r.stdout.strip().splitlines()[-1])
+assert _d['exit_code'] == 0, f'空 logs 应当正常退出，实际 {_d["exit_code"]}'
+assert _d['stdout'].strip(), (
+    'netmind logs 在空结果时 stdout 全空——使用者无法区分「命令失败」与「没有日志」')
+
+# 遍历结果打印的命令都要有空态分支
+from pathlib import Path as _P
+_code = chr(10).join(l.split('#')[0] for l in
+                     (_P(ROOT) / 'backend' / 'app' / 'cli.py').read_text(encoding='utf-8').splitlines())
+assert 'if not rows:' in _code, 'CLI 里遍历结果打印的命令缺少空结果分支'
+# 日志行不得用 row['x']：持久化的旧记录可能缺字段，会 KeyError 让 CLI 崩掉
+assert "row['message']" not in _code and "row['source']" not in _code, (
+    'CLI 仍用 row[...] 硬取字段——旧记录缺字段就会崩，'
+    '而崩的用户看到的是「命令坏了」而不是「这条记录旧」')
+# CLI 与前端对「来源缺失」用同一套措辞
+_disp = (_P(ROOT) / 'frontend' / 'src' / 'lib' / 'display.js').read_text(encoding='utf-8')
+if '来源未标注' in _disp:
+    assert '来源未标注' in _code, (
+        '前端用「来源未标注」、CLI 却另编一个——同一份数据在两处显示成不同来源')
+""",
+    ),
+    Gate(
         id='no-sentinel-measurements',
         desc='缺测不得被填成哨兵数值；告警文案不得声称 SLA 被违反',
         on_fail='block',
