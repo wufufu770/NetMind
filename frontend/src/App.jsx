@@ -46,6 +46,8 @@ import { API, copyText, downloadText, normalizeList, request, toastMessage, useA
   from './lib/client.js';
 import { fallbackModelPresets, fontChoices, issueCodeLabels, sampleIntents, statusLabels, themePresets }
   from './lib/constants.js';
+import { graphToText, textToGraph } from './lib/graph.js';
+import { layoutNodes, positionOf, resolveEndpoints } from './lib/topology.js';
 import { confidenceText, healthRing, healthScore, isReadonly, metricTone, metricValue, percentText, summaryCell, writeAction } from './lib/display.js';
 import './style.css';
 
@@ -320,28 +322,30 @@ function Dashboard({ setPage, setToast, refreshKey }) {
 function TopologyMap({ topology }) {
   const nodes = topology?.nodes || [];
   const links = topology?.links || [];
-  const positions = useMemo(() => {
-    const defaults = [
-      [50, 12], [18, 36], [82, 36], [18, 68], [50, 86], [82, 68], [50, 48], [8, 52], [92, 52],
-    ];
-    return nodes.reduce((acc, node, index) => {
-      acc[node.id || node.name || index] = defaults[index % defaults.length];
-      return acc;
-    }, {});
-  }, [nodes]);
+  // 同名节点不覆盖：覆盖等于凭空少一台设备，改为错开并回报。
+  // 坐标按**索引**取（layout.coords），渲染方不自己拼 key——见 lib/topology.js
+  // 里记的两个坑：key 拼法两边不一致会让 positions[key] 为 undefined 而白屏；
+  // 「主键查不到再退化到冲突键」也不对，因为主键从不缺失，两台设备仍会重叠。
+  const layout = useMemo(() => layoutNodes(nodes), [nodes]);
+  const positions = layout.positions;
   if (!nodes.length) return <EmptyState title="暂无拓扑" text="后端未返回拓扑节点。" icon={Network} />;
   return (
     <div className="topology-map">
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         {links.map((link, index) => {
-          const src = positions[link.src || link.source || link.from] || positions[nodes[0]?.id] || [10, 10];
-          const dst = positions[link.dst || link.target || link.to] || positions[nodes[1]?.id] || [90, 90];
+          // 端点缺失就跳过并提示，不再回退到固定坐标——那会凭空画出一条边
+          const { src, dst, missing } = resolveEndpoints(link, positions);
+          if (missing.length || !src || !dst) {
+            return <title key={index}>{`连线端点未在节点列表中：${missing.join('、')}`}</title>;
+          }
           return <line key={index} x1={src[0]} y1={src[1]} x2={dst[0]} y2={dst[1]} />;
         })}
       </svg>
       {nodes.map((node, index) => {
-        const id = node.id || node.name || `node-${index}`;
-        const [x, y] = positions[id];
+        const pos = positionOf(index, layout);
+        // 拿不到坐标就不画这个点，而不是解构 undefined 把整个页面白屏
+        if (!pos) return null;
+        const [x, y] = pos;
         return (
           <button key={id} type="button" className={`topo-node ${node.role || node.type || ''}`} style={{ left: `${x}%`, top: `${y}%` }} aria-label={`${id} ${node.role || node.type || ''}`}>
             <Server size={15} />
@@ -898,14 +902,20 @@ function WorkflowPage({ setToast }) {
   useEffect(() => {
     if (selected) {
       setSelectedId(selected.id);
-      setDraft({ ...selected, nodesText: (selected.graph?.nodes || []).join('\n'), edgesText: (selected.graph?.edges || []).map((e) => Array.isArray(e) ? e.join(' -> ') : `${e.source || e[0]} -> ${e.target || e[1]}`).join('\n') });
+      const text = graphToText(selected.graph);
+      setDraft({ ...selected, nodesText: text.nodesText, edgesText: text.edgesText });
     }
   }, [selected?.id]);
 
   const saveWorkflow = async () => {
-    const nodes = (draft.nodesText || '').split('\n').map((x) => x.trim()).filter(Boolean);
-    const edges = (draft.edgesText || '').split('\n').map((line) => line.split('->').map((x) => x.trim()).filter(Boolean)).filter((e) => e.length === 2);
+    // 解析交给 textToGraph：不合法的行会进 problems 而不是被悄悄丢掉。
+    // 用户打完字点保存却发现图上少一条边、还不知道为什么，比报错更糟。
+    const { nodes, edges, problems } = textToGraph(draft.nodesText, draft.edgesText);
     const payload = { id: draft.id || 'custom', name: draft.name || '自定义工作流', enabled: draft.enabled !== false, graph: { nodes, edges } };
+    if (problems.some((x) => !x.fixed)) {
+      toastMessage(setToast, 'warn', `已保存，但有 ${problems.filter((x) => !x.fixed).length} 处无法解析：`
+        + problems.filter((x) => !x.fixed).map((x) => x.message).join('；'));
+    }
     try {
       const saved = await request('/api/config/workflows', { method: 'POST', body: payload });
       setData((prev) => [...normalizeList(prev).filter((w) => w.id !== saved.id), saved]);

@@ -12,6 +12,7 @@
 import importlib
 import json
 import os
+import pathlib
 import threading
 from pathlib import Path
 
@@ -218,3 +219,77 @@ def test_logs_are_capped():
     assert st.MAX_LOGS > 0
     assert st.MAX_EXECUTIONS > 0
     assert st.MAX_TELEMETRY > 0
+
+
+# ---------- 静默判定 ----------
+#
+# `save()` 只在构建 payload 时持锁，mkstemp → write → fsync → replace 这段在锁外，
+# 而后台自动保存线程每 2 秒跑一次。压测收尾直接扫目录找临时文件，会撞上这个
+# 写入窗口，把一次正常保存误报成「残留临时文件」——实测 5 次压测里约 1 次。
+# 偶发的门禁比没有门禁更糟（人会开始忽略它），所以要么等静默，要么别查。
+
+def test_settle_waits_for_inflight_saves():
+    """有保存进行中时 settle() 不得立刻返回 True。"""
+    from app.store import PersistentStore
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as d:
+        st = PersistentStore()
+        st._saves_inflight = 1                     # 模拟一次写入进行中
+        import threading
+        threading.Timer(0.15, lambda: st.__setattr__('_saves_inflight', 0)).start()
+        assert st.settle(timeout=3.0) is True, '写入结束后应当能等到静默'
+
+
+def test_settle_returns_false_on_timeout():
+    from app.store import PersistentStore
+    st = PersistentStore()
+    st._saves_inflight = 1                         # 永不结束
+    assert st.settle(timeout=0.2) is False, '超时应当如实报 False，而不是假装静默'
+
+
+def test_settle_false_while_dirty():
+    """有待写内容也不算静默——否则查残留时数据可能还没落盘。"""
+    from app.store import PersistentStore
+    st = PersistentStore()
+    st._dirty = True
+    assert st.settle(timeout=0.2) is False
+    st._dirty = False
+    assert st.settle(timeout=0.5) is True
+
+
+def test_saves_inflight_returns_to_zero_after_save():
+    """计数必须配平——否则 settle() 会永远等不到静默。"""
+    from app.store import PersistentStore
+    import tempfile as _tf
+    import app.store as store_mod
+    with _tf.TemporaryDirectory() as d:
+        st = PersistentStore()
+        orig = store_mod.DATA_PATH
+        store_mod.DATA_PATH = pathlib.Path(d) / 's.json'
+        try:
+            before = st._saves_inflight
+            st.save()
+            assert st._saves_inflight == before, 'save() 之后计数没有归零'
+        finally:
+            store_mod.DATA_PATH = orig
+
+
+def test_save_failure_also_decrements_inflight():
+    """保存失败路径也会走 finally —— 计数配平不能只在成功时成立。"""
+    from app.store import PersistentStore
+    import tempfile as _tf
+    import app.store as store_mod
+    with _tf.TemporaryDirectory() as d:
+        st = PersistentStore()
+        orig = store_mod.DATA_PATH
+        store_mod.DATA_PATH = pathlib.Path(d) / 's.json'
+        try:
+            real_replace = os.replace
+            os.replace = lambda *a, **k: (_ for _ in ()).throw(OSError('boom'))
+            try:
+                st.save()
+            finally:
+                os.replace = real_replace
+            assert st._saves_inflight == 0, '保存失败后计数没有归零 —— settle() 会永远超时'
+        finally:
+            store_mod.DATA_PATH = orig

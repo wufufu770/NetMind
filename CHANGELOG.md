@@ -4,6 +4,19 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- `frontend/src/lib/graph.js`：工作流图的「结构与可编辑文本」互转。解析时把
+  不合法的行**收集进 `problems` 返回**，不再 `.filter(e => e.length === 2)`
+  悄悄吞掉——用户打 `a -> b -> c` 此前那条边直接消失且无任何提示。箭头写反的
+  （`b <- a`）自动纠正并告知；指向不存在节点的边会被点名
+- `frontend/src/lib/topology.js`：拓扑布局与连线端点解析。修两处静默出错：
+  ① 同名节点原先 `acc[id] = ...` 互相覆盖，等于凭空少一台设备，现错开摆放并回报；
+  ② 连线端点找不到时原先 `|| [10, 10]` 回退到固定坐标——**画出来的拓扑在撒谎**，
+  现改为跳过并在 `<title>` 里写明缺哪个端点
+- 门禁 `frontend-request-layer-is-tested` 增补**调用点与声明的参数个数比对**。
+  抽模块时改了签名、调用点没跟着改，这类漂移实测咬了三次，而 `npm run build`
+  与模块自身测试**都是绿的**（它们都不碰调用点），只在浏览器里炸。
+  参数切分做了括号深度感知——`summaryCell(v, { yes, no } = {})` 里花括号内也有逗号，
+  朴素 split 会误报，**出误报的门禁比没有门禁更糟**。已用「改回旧签名」反例证伪
 - `frontend/src/lib/client.js`：请求层（`request` / `useApi` / `normalizeList` /
   `toastMessage` / `copyText` / `downloadText`）从 App.jsx 抽出。抽它的理由不是
   「文件太长」——App.jsx 里还堆着十来个页面组件，那是另一回事——而是**这段此前
@@ -141,6 +154,19 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **压测门禁 `load-test-no-loss` 偶发失败（实测 5 次里约 1 次）**。症状是
+  「残留临时文件: 1」，而数据文件完好。查下来是**断言与写入竞争**，不是真泄漏：
+  `save()` 只在构建 payload 时持锁，`mkstemp → write → fsync → replace` 这段在
+  锁外，后台自动保存线程又每 2 秒跑一次，压测收尾直接扫目录就会撞上这个窗口。
+  给 store 加在途保存计数与 `settle(timeout)`，压测改为**先等静默再查残留**——
+  断言本身没放宽，静默之后仍有残留才算真漏。修复后连跑 8 次全过、0 残留
+- **抽出过程中连续三次踩到同一个坑**并已全部修掉：① `request()` 里 `apiUrl`
+  误写成 `apiPath`，build 绿灯通过而运行必崩 ② 渲染端用
+  `node.id || node.name || \`node-${index}\`` 查坐标，而布局对无 id 节点存的是
+  序号的**字符串**，两边 key 拼法不一致 → `const [x, y] = undefined` 白屏
+  ③ 改成「主键查不到再退化到冲突键」仍不对——主键从不缺失（它就是前一个同名
+  节点的槽位），两台设备照样重叠。**根因都是「让调用方自己算 key」**，
+  现在布局直接按索引给出 `coords`，key 拼法只剩一处
 - **抽出过程中当场发现：`request()` 里的 `apiUrl` 误写成 `apiPath`（旧别名），
   而 `npm run build` 绿灯通过**。打包器不检查函数体内的未定义标识符，这个错误在
   浏览器里是「首次 API 调用即崩」。测试一次抓到 8 条失败。

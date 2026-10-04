@@ -38,6 +38,31 @@ class Gate:
 # 内联检查代码片段统一拿到的命名空间
 NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
+
+def _split_params(text):
+    """按顶层逗号切参数列表。括号/花括号/方括号内的逗号不算分隔符。
+
+    必须这样做：`summaryCell(value, { yes, no, unknown = '未知' } = {})` 里
+    花括号内也有逗号，朴素 split 会把它切成三段，算出错误的必填参数个数，
+    门禁就开始在合法代码上报错——**出误报的门禁比没有门禁更糟**，它会被人关掉。
+    """
+    out, buf, depth = [], [], 0
+    for ch in text:
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            out.append(''.join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+    tail = ''.join(buf).strip()
+    if tail:
+        out.append(tail)
+    return [a for a in out if a]
+
+
 GATES: list[Gate] = [
     Gate(
         id='changelog-sections-not-duplicated',
@@ -142,6 +167,33 @@ for m in ('client.js', 'constants.js', 'api.js', 'auth.js', 'display.js'):
 pkg = (ROOT / 'frontend' / 'package.json').read_text(encoding='utf-8')
 assert 'node --test' in pkg, 'package.json 的 test 脚本不是 node --test'
 assert 'lib' in pkg.split('"test"')[1][:120], 'test 脚本的 glob 没覆盖 src/lib'
+
+# 6) 调用点与声明的**参数个数**必须一致。
+#    实测被咬了三次：抽模块时改了签名，App.jsx 的调用点没跟着改，而
+#    `npm run build` 与模块自身测试**都是绿的**——它们都不碰调用点。
+#    症状是运行时 TypeError（`const [x, y] = undefined`）或整块 UI 静默不渲染。
+lib_defs = {}
+for m in sorted(lib.glob('*.js')):
+    if m.name.endswith('.test.js'):
+        continue
+    for d in re.finditer(r'export (?:async )?function (\w+)\((.*?)\)\s*\{',
+                         m.read_text(encoding='utf-8'), flags=re.S):
+        params = _split_params(d.group(2))
+        # 有默认值的参数可以不传——只数必填的那个下界
+        required = len([a for a in params if not a.startswith('{') and '=' not in a])
+        lib_defs.setdefault(d.group(1), (m.name, required, len(params)))
+drift = []
+for name, (mod, n_req, n_max) in lib_defs.items():
+    for call in re.finditer(rf'(?<![.\w]){name}\(([^()]*(?:\([^()]*\)[^()]*)*)\)', app_jsx):
+        passed = call.group(1).strip()
+        count = 0 if not passed else len(re.split(r',(?![^{]*\})', passed))
+        if count < n_req or count > n_max:
+            line = app_jsx[:call.start()].count('\n') + 1
+            drift.append(f'App.jsx:{line} 调用 {name}(…) 传 {count} 个参数，'
+                         f'{mod} 声明 {n_req}–{n_max} 个')
+assert not drift, (
+    'App.jsx 的调用点与 lib/ 里的声明对不上——这类漂移 **build 与模块测试都是绿的**，'
+    '因为它们都不碰调用点，只在浏览器里炸：\n  - ' + '\n  - '.join(drift))
 """,
     ),
     Gate(

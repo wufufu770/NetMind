@@ -174,7 +174,13 @@ def main() -> int:
         except Exception as exc:
             healthy = False
             print(f'  ❌ 压测后数据文件损坏: {exc}')
+    # 先等所有保存结束再查残留：save() 的文件 I/O 在锁外、后台线程每 2 秒
+    # 跑一次，不等就会把一次正常保存误报成「残留临时文件」（实测 5 次里约 1 次）。
+    # settle() 之后仍然有残留，才是真的漏了。
+    settled = STORE.settle(timeout=5.0)
     leftovers = [p.name for p in fp.parent.glob('.*tmp*')] if fp.parent.exists() else []
+    if not settled:
+        print('  ⚠️ 等待保存结束超时，本次残留判定仅供参考')
     print(f'\n  压测后数据文件完好: {healthy} · 残留临时文件: {len(leftovers)}')
     snap = obs.snapshot()
     print(f"  服务自身观测：http.requests={snap['counters'].get('http.requests')} "

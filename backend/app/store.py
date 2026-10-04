@@ -47,6 +47,11 @@ class PersistentStore:
         self._lock=threading.RLock()
         self._dirty=False
         self._last_save=0.0
+        # 正在写盘（mkstemp → write → fsync → replace）的保存次数。
+        # save() 只在**构建 payload** 时持锁，文件 I/O 在锁外，所以拿锁等不到
+        # 「没有保存正在进行」——压测收尾要判断「没有临时文件残留」时
+        # 就只能撞上这个窗口。5 次压测里约 1 次误报就是这么来的。
+        self._saves_inflight=0
         if DATA_PATH.exists():
             self.load()
         else:
@@ -102,6 +107,8 @@ class PersistentStore:
         # 才安全，而那是巧合不是保证。
         fd, tmp = tempfile.mkstemp(dir=str(DATA_PATH.parent),
                                    prefix=f'.{DATA_PATH.name}.', suffix='.tmp')
+        with self._lock:
+            self._saves_inflight += 1
         try:
             with os.fdopen(fd, 'w', encoding='utf-8') as fh:
                 fh.write(text)
@@ -128,9 +135,30 @@ class PersistentStore:
             except Exception:
                 pass
             return False
+        finally:
+            with self._lock:
+                self._saves_inflight -= 1
         self._last_save=time.time()
-        self._dirty=False
+        with self._lock:
+            self._dirty=False
         return True
+
+    def settle(self, timeout: float = 5.0) -> bool:
+        """等所有在途保存结束且无待写内容。返回是否在超时前静默下来。
+
+        判断「数据文件是否完好、是否留了临时文件」之前必须先调它：
+        `save()` 的文件 I/O 在锁外，后台自动保存线程又每 2 秒跑一次，
+        直接查目录会撞上写入窗口，把一次正常保存误报成「残留临时文件」
+        （实测 5 次压测里约 1 次）。
+        """
+        deadline = time.time() + max(0.0, timeout)
+        while time.time() < deadline:
+            with self._lock:
+                if self._saves_inflight == 0 and not self._dirty:
+                    return True
+            time.sleep(0.02)
+        with self._lock:
+            return self._saves_inflight == 0 and not self._dirty
 
     def mark_dirty(self) -> None:
         with self._lock:
