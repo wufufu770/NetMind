@@ -17,7 +17,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 - Policy conflict detection, auto-fix, approval flow, transactional rollback
 - Read-only router compliance audit (`netmind audit`)
 - containerlab topology diagnose (`netmind diagnose`), optional napalm collection and cached LLM analysis
-- React dashboard + WebSocket events; MCP-style tool registry
+- React dashboard + WebSocket events; MCP server over JSON-RPC stdio (`netmind mcp`)
 
 ## What's real / What's simulated
 
@@ -154,7 +154,9 @@ CI runs the suite on Python 3.10–3.12 plus a frontend build.
    pre/post-apply 验证（`diagnose/closed_loop.py`，未重测即 `verified=False`）、
    回滚（`TransactionManager.rollback()`，10 测试 + 真机读回验证，见
    `docs/closed-loop-run-report.md`）
-3. Phase 3 — MCP server over JSON-RPC stdio · **未开始**，backlog `B5-mcp`
+3. Phase 3 — MCP server over JSON-RPC stdio · **已交付**（`netmind mcp`）：
+   `initialize` / `tools/list` / `tools/call` / `ping`，逐行 JSON-RPC 2.0；
+   `tools/call` **默认干跑**（stdio 不构成放宽执行的理由），清单只列已启用工具
 
 已交付能力的状态与限制以上面那张诚实表为准，那张表是契约；本节只标阶段，
 不重复能力清单。仍在做的主要是环境相关的验证（多厂商真机、link_down 路径实跑），

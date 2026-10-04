@@ -4,6 +4,17 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- **MCP stdio 服务**（`netmind mcp`，backlog `B5-mcp` / Roadmap Phase 3）。
+  此前只有 `MCPProtocol` 那个进程内 HTTP 适配器（`/api/mcp/*`），并不是真正的
+  MCP 服务——外部客户端按 MCP 协议连不上，README 当时如实写的是
+  「MCP-**style** tool registry」与「Phase 3 未开始」，所以这不是坏承诺，
+  是待交付的功能。现支持 `initialize` / `tools/list` / `tools/call` / `ping`
+  与 `notifications/initialized`（notification 不回响应，符合 JSON-RPC 规范）。
+  协议层 `handle()` 是**纯函数**、IO 循环单独一层，否则测协议每次都要起子进程。
+  补 18 个用例：五类标准错误码、notification 无响应、坏 JSON 仍回合规响应。
+  两条不妥协并已反例证伪：`tools/call` **默认干跑**（stdio 不构成放宽执行的理由）、
+  `tools/list` **只列已启用工具**（清单给了就会有人照着调）
+
 - CLI 补三个命令，覆盖此前只在 HTTP 层存在、CLI 摸不到的端点：
   `netmind vendors`（厂商能力矩阵，**验证等级逐行标出**：verified 是真机跑通过的、
   declared 是映射齐备未验、blocked 是缺插件）、`netmind readiness`（配置齐全度与

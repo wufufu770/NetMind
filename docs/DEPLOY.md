@@ -250,7 +250,27 @@ HealingAgent 这一步记为 `waiting`（等前置条件），**不会**记成�
 开发时用 `npm run dev`：`vite.config.js` 里配了同样的 `/api`、`/ws` 代理，
 所以开发与生产的请求形状一致（都是同源相对路径）。
 
-## 11. 出了故障先看哪儿
+## 11. 把 NetMind 当 MCP 服务用
+
+```bash
+netmind mcp        # 常驻，逐行读 stdin 的 JSON-RPC 2.0，逐行写 stdout
+```
+
+支持的方法：`initialize` / `tools/list` / `tools/call` / `ping`，
+以及 `notifications/initialized`（notification 不回响应，符合 JSON-RPC 规范）。
+
+**stdio 不构成放宽执行的理由**：`tools/call` 默认 `dry_run=true`，不下发任何命令；
+确需执行要在参数里显式写 `dry_run: false`，而那仍受工具自身的策略与审批门约束。
+`tools/list` 只列**已启用**的工具——清单给了就会有人照着调，列出禁用工具等于
+把「点了没反应」的失败提前推给调用方。
+
+一个例子：
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | netmind mcp
+```
+
+## 12. 出了故障先看哪儿
 
 | 症状 | 先查 |
 |---|---|

@@ -65,6 +65,65 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='mcp-stdio-honours-the-safety-model',
+        desc='MCP stdio：tools/call 默认干跑、tools/list 只列已启用工具、协议错误用标准码',
+        on_fail='block',
+        check=r"""
+# 走 stdio **不比走 HTTP 更可信、更不受限**。一个对外的协议入口若默认真执行，
+# 等于给安全门开了个后门：认证、审批、dry_run 全绕过去了。
+#
+# 两条不妥协（均已用反例注入证伪）：
+#   · `tools/call` 默认 dry_run=true，要真执行必须显式 dry_run=false
+#   · `tools/list` 只列已启用工具——清单给了就会有人照着调
+import json as _json
+import subprocess as _sp
+import sys as _sys
+_lines = [
+    "import json, sys",
+    "sys.path.insert(0, 'backend')",
+    "from app import mcp_server as M",
+    "import app.core.mcp_protocol as mp",
+    "seen = []",
+    "class Fake:",
+    "    def list_tools(self):",
+    "        return {'tools': [{'name': 'a', 'enabled': True},",
+    "                        {'name': 'b', 'enabled': False}]}",
+    "    def call_tool(self, name, arguments=None, dry_run=True):",
+    "        seen.append(dry_run)",
+    "        return {'ok': True}",
+    "f = Fake()",
+    "out = {}",
+    "out['tools'] = [t['name'] for t in M.handle(",
+    "    {'jsonrpc':'2.0','id':1,'method':'tools/list'}, mcp=f)['result']['tools']]",
+    "M.handle({'jsonrpc':'2.0','id':2,'method':'tools/call',",
+    "         'params':{'name':'a','arguments':{}}}, mcp=f)",
+    "out['default_dry_run'] = seen[-1]",
+    "M.handle({'jsonrpc':'2.0','id':3,'method':'tools/call',",
+    "         'params':{'name':'a','arguments':{},'dry_run':False}}, mcp=f)",
+    "out['opt_in'] = seen[-1]",
+    "out['bad_method'] = M.handle({'jsonrpc':'2.0','id':4,'method':'nope'}, mcp=f)['error']['code']",
+    "out['bad_json'] = M.parse_line('{oops', mcp=f)['error']['code']",
+    "out['notif'] = M.handle({'jsonrpc':'2.0','method':'ping'}, mcp=f)",
+    "out['real_list_count'] = len(M._tool_entries(mp.MCP))",
+    "print(json.dumps(out, ensure_ascii=False))",
+]
+_probe = chr(10).join(_lines)
+_r = _sp.run([_sys.executable, '-c', _probe], cwd=ROOT,
+             capture_output=True, text=True, timeout=180)
+assert _r.returncode == 0, f'探针跑不起来: {_r.stderr[-400:]}'
+_d = _json.loads(_r.stdout.strip().splitlines()[-1])
+
+assert _d['default_dry_run'] is True, \
+    f'tools/call 默认真执行了（dry_run={_d["default_dry_run"]}）——stdio 成了绕过安全门的后门'
+assert _d['opt_in'] is False, '显式 dry_run=false 应当放行'
+assert _d['tools'] == ['a'], f'禁用工具仍在清单里: {_d["tools"]}'
+assert _d['bad_method'] == -32601, f'未知方法应回 -32601，实际 {_d["bad_method"]}'
+assert _d['bad_json'] == -32700, f'坏 JSON 应回 -32700，实际 {_d["bad_json"]}'
+assert _d['notif'] is None, 'notification 不该有响应'
+assert _d['real_list_count'] > 0, '真实工具清单是空的——服务起来没东西可用'
+""",
+    ),
+    Gate(
         id='cli-renders-real-fields',
         desc='CLI 表格不得整列显示 `-`——那通常是没读对字段名，不是「没有该信息」',
         on_fail='block',

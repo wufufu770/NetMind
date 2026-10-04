@@ -37,6 +37,16 @@ def status():
     print(_get('/api/system/status'))
 
 @app.command()
+def mcp():
+    """以 MCP stdio 服务运行：每个 stdin 行一个 JSON-RPC 请求。
+
+    与 `netmind status` 等命令不同——它**不打印就退出**，而是常驻直到 stdin 关闭。
+    `tools/call` 默认 dry_run，stdio 不构成放宽执行的理由。
+    """
+    from .mcp_server import serve
+    serve()
+
+@app.command()
 def readiness():
     """配置是否齐全、缺什么、有多少条。这些数字都是真实的计数，不是占位。"""
     print(_get('/api/readiness'))
