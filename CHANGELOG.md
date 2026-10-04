@@ -135,6 +135,13 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - 门禁从 8 条增至 28 条，全部行为判定，不做源码文本匹配
 
 ### Changed
+- **诚实表的 ⚠️ 现在只表示「今天的限制」**。此前 9 条 ⚠️ 里有 3 条讲的是**已经
+  修好的坑**（缺测哨兵值、诊断置信度默认 0.9、状态端点恒为真），正文以
+  「⚠️ previously …」的形式留在限制列里。留着是**反向误导**——读表的人据此
+  判断能不能用，而留着会让他们以为问题还在。现移到表下方一张「修过的同类问题」
+  小表（症状 → 现在），⚠️ 收敛为 7 条：环境限制 1、刻意的设计选择 4、
+  结构性限制 1、真实取舍 1。门禁 `honesty-table-signals-current-state` 锁死，
+  并要求「修过的同类问题」小节必须存在——否则把历史移出 ⚠️ 就等于丢信息
 - **写明部署模型：一台实例 = 一台设备**（`docs/DEPLOY.md` 第 7 节 + 诚实表）。
   由此澄清一个此前措辞有误导的缺口声明——原文写「no per-endpoint or per-device
   scoping — an admin may act on every device」，暗示存在设备群；实际上单实例只连

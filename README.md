@@ -27,8 +27,8 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Config-change proposal (diff, danger marking, reviewable Markdown) | ✅ Real (`core/config_diff.py`, 8 tests) |
 | Lab data collection (real ICMP + NIC counters) | ✅ Real (`diagnose/lab_collector.py` + `scripts/lab.sh`, 11 tests on real captures) |
 | Routing state | ✅ Real — FRR/zebra 路由表（仅直连+静态，无 OSPF/BGP） |
-| Missing measurements | ✅ Never substituted — a ping that lost too many packets to produce an RTT yields `latency_ms: null`, not a sentinel; `diagnose()` then reasons from the loss that *was* measured (80% loss ⇒ `congestion`, not `link_down` on a fabricated 999 ms) and returns `normal` at confidence `0.0` when nothing was measured at all; ⚠️ previously `to_snapshot` filled `999.0`/`1.0` sentinels, turning 「didn't measure」 into 「measured a dead link」 and triggering remediation on a healthy device |
-| Diagnosis confidence | ✅ Derived — every diagnosis, **including `normal`**, derives confidence from margin-to-threshold, sample count, and whether the data is real or simulated; with no samples at all the verdict is `normal` at confidence `0.0` with a stated reason; ⚠️ previously the `normal` branch returned a bare `Diagnosis(type='normal')` and took the schema default `0.9`, so 1 sample and 10 samples, a reading at 45 ms and one at 1 ms, and simulated vs. real data all scored identically |
+| Missing measurements | ✅ Never substituted — a ping that lost too many packets to produce an RTT yields `latency_ms: null`, not a sentinel; `diagnose()` then reasons from the loss that *was* measured (80% loss ⇒ `congestion`, not `link_down` on a fabricated 999 ms) and returns `normal` at confidence `0.0` when nothing was measured at all |
+| Diagnosis confidence | ✅ Derived — every diagnosis, **including `normal`**, derives confidence from margin-to-threshold, sample count, and whether the data is real or simulated; with no samples at all the verdict is `normal` at confidence `0.0` with a stated reason |
 | Diagnosis thresholds | ⚠️ Calibrated on one lab topology; `throughput` judgement needs a baseline and is skipped when absent |
 | Post-apply verification | ✅ Real — `diagnose/closed_loop.py`; `success` 由实测前后对比推出，未重测即 `verified=False`（跑测见 `docs/closed-loop-run-report.md`） |
 | Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 与 `link_down` **两条路径均已在真实设备端到端跑通**（`scripts/verify_heal.py`、`scripts/verify_linkdown.py`），设备侧均以 `qdisc` / 路由表读回作独立佐证；⚠️ `anomaly_traffic` **不做自动处置**——其唯一触发条件是带宽跌幅过半，而原处置是限速（把已经掉下去的带宽再限死一点），方向是反的，已从处置表移除；该诊断仍会照常报出供人工判断；⚠️ **auto-remediation is off unless `NETMIND_HEAL_IFACE` is set** — the interface is never guessed, since guessing wrong targets the wrong port; real production faults unverified |
@@ -45,7 +45,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Credential tiers | ✅ Two — `NETMIND_ADMIN_TOKEN` (all methods) and `NETMIND_READONLY_TOKEN` (GET/HEAD/OPTIONS; writes get **403**, not 401, because the credential is valid and the role is not); the dashboard reads `auth_mode` from `/api/system/status` and says so up front instead of letting a read-only user click into a 403; ⚠️ **one instance manages one device** — a deployment connects to exactly the host in `NETMIND_SSH_HOST`, so there is no per-device axis to scope (that gap as originally worded assumed a fleet). Within a tier there is no further scoping: an admin can reach every endpoint. `CredentialConfig` records in the store are **not** used to connect — the API says so on every row (`used_for_connection: false`) rather than letting the field names (`host`/`port`/`username`) imply otherwise |
 | Self observability | ✅ Real — `/healthz` + `/metrics` (p50/p95/p99 per endpoint, error counts) |
 | Lab fixture integrity | ✅ Self-consistent — gate `fixtures-are-self-consistent` requires each ping capture's self-reported `transmitted`/`received` and `round-trip min/avg/max` to match its own reply lines, requires contiguous `seq`, forbids a `round-trip` line in the link-down capture, and requires every measurement quoted in `key_finding` to be findable in the real dataset; verified by two fabrication attempts (copying the real summary but hand-writing reply times, and keeping RTT consistent but inflating the packet count) — both caught |
-| `/api/system/status` | ✅ Measured — `driver` follows `NETMIND_DRIVER`, `model_online` comes from an actual health check, `healthy` depends on whether telemetry exists (no data ⇒ not healthy), plus `telemetry_source` and `auth_mode`; ⚠️ previously `healthy`/`driver`/`model_online` were never assigned and always returned `true`/`simulation`/`true` |
+| `/api/system/status` | ✅ Measured — `driver` follows `NETMIND_DRIVER`, `model_online` comes from an actual health check, `healthy` depends on whether telemetry exists (no data ⇒ not healthy), plus `telemetry_source` and `auth_mode` |
 | Dashboard metrics | ✅ Derived from real state (`core/dashboard.py`); ⚠️ **no SLA attainment figure** — it needs an agreed SLO target, which the project does not define, so the field is `null` with a stated reason rather than a number; risk entries appear only when telemetry supports them, each carrying its `evidence` |
 | SLA feasibility check | ✅ Real — `POST /api/telemetry/predict-sla` judges the measured history against **the target the caller supplies**, returning which target was used and which metrics breached; with no target supplied it returns the measured averages and `feasible: null` rather than picking a threshold on the user's behalf |
 | AI recovery review | ✅ Real — re-runs the rule engine over recent executions and compares against what was recorded; entries it cannot evaluate are listed in `undecidable` and force an `indeterminate`/`partial` verdict instead of counting as "no conflict" |
@@ -55,6 +55,21 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Test reproducibility | ✅ Gate `tests-are-reproducible` runs the suite twice; same pass count required |
 | Concurrency | ✅ 20×20=1040 requests, **0 errors**, data intact; latency baseline in `docs/load-test-baseline.md` (known limit: single-process only) |
 | Rate limiting | ✅ Per-source token buckets (write 5/s, read 50/s); `NETMIND_RATE_LIMIT=off` for bulk import; known limit: in-process only (multi-worker multiplies the limit) |
+
+**⚠️ 只表示「这是今天的限制」。** 修过的坑不留在这一列——它们在
+`CHANGELOG.md` 与下面这张小表里。留着会让读的人以为问题还在，而那与
+诚实的方向相反：这张表是契约，读它的人据此判断能不能用。
+
+修过的同类问题（**默认值 / 占位符冒充观测值**，全部实测过并已锁定）：
+
+| 曾经 | 症状 | 现在 |
+|---|---|---|
+| `to_snapshot` 填 `999.0` / `1.0` 哨兵 | 「没测到」变成「测到断链」，对健康设备下发处置 | 缺测留 `None`，据此诊断 |
+| `Diagnosis(type='normal')` 吃 schema 默认 `0.9` | 1 个样本与 10 个样本同分；贴阈值与极低同分 | 按离阈值多远 × 样本量 × 是否真实推导 |
+| `/api/system/status` 三个字段从无赋值 | 恒报 `healthy=true` | 一律从可观测状态算出 |
+| 面板 `sla: 98` 等字面量 | 数字无从追溯 | 全由真实状态推，推不出就 `null` + 说明 |
+| 前端 `node.ip \|\| ... \|\| '可用'` | 没数据的设备被标成「可用」 | 显示「状态未知」 |
+| 侧栏 `health?.alerts ? … : '正常'` | 任何检查都没跑过就显示「全网正常」 | 三态：未检查 / N 告警 / 正常 |
 
 ## Vendor support
 

@@ -65,6 +65,47 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='honesty-table-signals-current-state',
+        desc='诚实表的 ⚠️ 只表示「今天的限制」；已修复的坑不得继续挂 ⚠️',
+        on_fail='block',
+        check=r"""
+# 诚实表是**契约**（CONTRIBUTING 规则 1）。⚠️ 的含义必须是「这是今天的限制」。
+# 把修好的坑继续留在 ⚠️ 列，是**反向误导**——读表的人据此判断能不能用，
+# 而留着会让他们以为那些问题还在。
+#
+# 实测踩过：三条行（缺测哨兵值、诊断置信度默认、状态端点恒真）已经修完，
+# 正文却仍以「⚠️ previously …」的形式挂在 ⚠️ 列里，9 条 ⚠️ 里有 3 条是历史。
+from pathlib import Path as _P
+_block = (_P(ROOT) / 'README.md').read_text(encoding='utf-8')
+_block = _block[_block.index("## What's real"):_block.index('## Vendor support')]
+_rows = [l for l in _block.splitlines() if l.startswith('|') and '---' not in l]
+
+_stale = []
+for _l in _rows:
+    if '⚠️' not in _l:
+        continue
+    # ⚠️ 后面紧跟 previously / 曾 / 已经修 —— 说明这条是历史而不是现有限制
+    for _m in re.finditer(r'⚠️\s*([^|；;]{0,20})', _l):
+        _head = _m.group(1)
+        if re.search(r'previously|曾|已(经)?修|原来', _head):
+            _stale.append(_l.split('|')[1].strip())
+            break
+assert not _stale, (
+    '这些行的 ⚠️ 讲的是**已修复**的历史，不是今天的限制：'
+    + ', '.join(_stale)
+    + '。它们该移出 ⚠️ 列（CHANGELOG 里有完整记录）。'
+    + '留着会让读表的人以为问题还在——与诚实相反的方向。')
+
+# 诚实表必须真的列出「修过的同类问题」，否则移出去的信息就丢了
+assert '修过的同类问题' in _block, \
+    '诚实表里应有「修过的同类问题」小节，否则把历史移出 ⚠️ 就等于丢信息'
+
+# 至少保留若干条现有限制——全部清空通常意味着表被掏空了，而不是问题都解决了
+_warned = [l for l in _rows if '⚠️' in l]
+assert len(_warned) >= 3, f'只剩 {len(_warned)} 条 ⚠️，确认一下是不是把限制也一起删了'
+""",
+    ),
+    Gate(
         id='mcp-stdio-honours-the-safety-model',
         desc='MCP stdio：tools/call 默认干跑、tools/list 只列已启用工具、协议错误用标准码',
         on_fail='block',
