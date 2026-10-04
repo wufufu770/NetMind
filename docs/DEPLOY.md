@@ -165,7 +165,28 @@ NETMIND_RATE_LIMIT=off
 **已知限制**：限流状态**只在进程内**。多 worker 部署下每个 worker 各有一份桶，
 实际阈值会放大到 worker 数倍——和第 3 节的单 worker 约束是同一个根因。
 
-## 7. 接真实设备
+## 7. 部署模型：一台实例 = 一台设备
+
+先说清这个，否则后面的配置会让人误解：**一个 NetMind 实例只连一台设备**，
+就是 `NETMIND_SSH_HOST` 指定的那台。探测点、自愈接口、重试记账全是单设备语义：
+
+```bash
+NETMIND_SSH_HOST=192.0.2.10        # 就是这一台，没有「设备列表」
+NETMIND_PROBE_TARGET=192.0.2.20    # 从这台设备去 ping 的目标
+NETMIND_HEAL_IFACE=eth0            # 在这台设备上处置时动的接口
+```
+
+想管一整个设备群，就起多个实例（各自的 store 与 token 相互独立）。这是刻意的
+设计——把多设备纳管做成「一份配置管一群设备」会牵动凭据模型、每次执行的目标选择
+和按设备授权，是另一个产品。
+
+因此**没有「按设备授权」这根轴**。凭据只有两档（管理员 / 只读），档内不再细分。
+
+> `GET /api/config/credentials` 里那些带 `host` / `port` / `username` 的条目
+> **不用于连接任何设备**，只作留档——真连接走上面那组环境变量。接口每行都带
+> `used_for_connection: false` 与说明，不靠使用者自己猜。
+
+## 8. 接真实设备
 
 默认 `NETMIND_DRIVER=simulation`，所有命令干跑，不碰任何设备。
 
@@ -185,7 +206,7 @@ NETMIND_SSH_DEVICE_TYPE=cisco_ios   # 见 GET /api/vendors
 
 危险操作按**命令语义**拦截（`del-flows` / `iptables -F` / `link down` / `route del` / `addr del`），与设备名无关；回滚只放行带 NetMind 签发 cookie 的流表，或本系统 `ip route add` 下去、规格完全一致的路由（`ip route del` 没有 cookie 可挂，归属靠登记——命令文本可伪造，登记不可）。
 
-## 8. 开启自动处置（默认关闭）
+## 9. 开启自动处置（默认关闭）
 
 **默认不开启。** 处置命令长成 `tc qdisc del dev {iface} root`，接口猜错就等于对
 错误的口下手——在多接口的真机上，那可能正是管理口。项目对设备采集一直坚持
@@ -209,7 +230,7 @@ HealingAgent 这一步记为 `waiting`（等前置条件），**不会**记成�
 原有整形但处置前没记参数，造不出等价的逆命令。没改善时会如实报「无法自动回滚」，
 需人工确认。
 
-## 9. 面板是怎么托管的
+## 10. 面板是怎么托管的
 
 `frontend` 容器是 **nginx 托管生产构建**，不是 Vite dev server：
 
@@ -229,7 +250,7 @@ HealingAgent 这一步记为 `waiting`（等前置条件），**不会**记成�
 开发时用 `npm run dev`：`vite.config.js` 里配了同样的 `/api`、`/ws` 代理，
 所以开发与生产的请求形状一致（都是同源相对路径）。
 
-## 10. 出了故障先看哪儿
+## 11. 出了故障先看哪儿
 
 | 症状 | 先查 |
 |---|---|

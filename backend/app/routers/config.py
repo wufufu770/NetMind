@@ -201,14 +201,34 @@ def config_import_yaml(body: str = Body(..., media_type='text/plain')):
     payload=yaml.safe_load(body) or {}
     return config_import(payload)
 
+def _credential_view(c: CredentialConfig) -> dict:
+    """凭据条目的对外视图。
+
+    这几条记录**不用于连接任何设备**——驱动只读 `NETMIND_SSH_*` 环境变量
+    （见 `drivers/ssh_driver.py`）。字段名（host / port / username / secret_ref）
+    读起来完全像「凭这条去连设备」，而实际上没有任何代码消费它们：
+    一台 NetMind 实例只连 `NETMIND_SSH_HOST` 那一台。
+
+    放着不说等于骗人：运维 POST 一条生产设备的凭据、看到它被存下来、
+    理所当然以为 NetMind 会用它。安全相关的接口上静默空转是有害的，
+    所以这里让响应自己说清状态，而不是等使用者自己去翻源码。
+    """
+    return {**c.model_dump(mode='json'),
+            'secret_ref': '***' if c.secret_ref else '',
+            'used_for_connection': False,
+            'note': '本条不用于连接设备。NetMind 通过环境变量 NETMIND_SSH_HOST / '
+                    'NETMIND_SSH_PORT / NETMIND_SSH_USERNAME / NETMIND_SSH_PASSWORD '
+                    '连接**唯一**那台设备；此处记录仅作留档。一台实例对一台设备。'}
+
+
 @router.get('/api/config/credentials')
 def credentials():
-    return [{**c.model_dump(mode='json'), 'secret_ref':'***' if c.secret_ref else ''} for c in STORE.credentials.values()]
+    return [_credential_view(c) for c in STORE.credentials.values()]
 
 @router.post('/api/config/credentials')
 def upsert_credential(c: CredentialConfig):
     STORE.credentials[c.id]=c
-    return {**c.model_dump(mode='json'), 'secret_ref':'***' if c.secret_ref else ''}
+    return _credential_view(c)
 
 @router.delete('/api/config/credentials/{credential_id}')
 def delete_credential(credential_id: str):

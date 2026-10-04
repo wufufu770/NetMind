@@ -40,6 +40,86 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='no-inert-credential-surface',
+        desc='凭据接口不得看起来像能连设备；没有消费方时必须自述',
+        on_fail='block',
+        check=r"""
+# `GET/POST /api/config/credentials` 里的条目带 host / port / username / secret_ref，
+# 读起来完全像「凭这条去连设备」——而**没有任何代码消费它们**：驱动只读
+# `NETMIND_SSH_HOST` 等环境变量。一台 NetMind 实例只连一台设备。
+#
+# 放着不说等于骗人：运维 POST 一条生产设备的凭据、看到它被存下来、理所当然
+# 以为 NetMind 会用它。安全相关的接口上静默空转是有害的。
+#
+# 本门禁做两件事：① 要求接口自述 `used_for_connection: false`；② 一旦将来真有人
+# 开始消费 STORE.credentials，就要求重新评估这条规则与诚实表措辞，而不是让
+# 两处说法各自漂移。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+_keys = ('NETMIND_ADMIN_TOKEN', 'NETMIND_ALLOW_ANON_READONLY')
+_saved = {k: os.environ.get(k) for k in _keys}
+try:
+    for k in _keys:
+        os.environ.pop(k, None)
+    import app.core.access as _access                     # noqa: E402
+    _access._client_host = lambda request: '127.0.0.1'
+    from fastapi.testclient import TestClient             # noqa: E402
+    from app.main import app as fastapi_app               # noqa: E402
+    from app.store import STORE                           # noqa: E402
+    from app.schemas import CredentialConfig              # noqa: E402
+
+    STORE.credentials.clear()
+    try:
+        with TestClient(fastapi_app) as c:
+            created = c.post('/api/config/credentials', json={
+                'name': 'r1', 'host': '192.0.2.10', 'port': 22,
+                'username': 'netmind', 'secret_ref': 'vault://r1',
+                'enabled': True,
+            })
+            assert created.status_code == 200, f'凭据写入失败: {created.status_code}'
+            row = created.json()
+            assert row.get('used_for_connection') is False, (
+                '凭据接口没有自述「不用于连接设备」——字段名 host/port/username '
+                '会让人以为它能连设备，而实际上没有消费方')
+            assert 'NETMIND_SSH_HOST' in str(row.get('note', '')), \
+                '自述里没指向真正生效的环境变量，使用者不知道该配哪里'
+            listed = c.get('/api/config/credentials').json()
+            assert listed and listed[0].get('used_for_connection') is False, \
+                '列表接口漏了自述字段'
+            assert listed[0].get('secret_ref') == '***', 'secret_ref 仍以明文返回'
+    finally:
+        STORE.credentials.clear()
+
+    # 消费方探测：真有人用了就得重新评估这条门禁与诚实表措辞
+    consumers = []
+    for p in (ROOT / 'backend' / 'app').rglob('*.py'):
+        rel = p.relative_to(ROOT)
+        if rel.as_posix() in ('backend/app/store.py', 'backend/app/schemas.py',
+                              'backend/app/routers/config.py'):
+            continue          # 存储、模型、接口自身不算消费方
+        txt = p.read_text(encoding='utf-8')
+        if 'STORE.credentials' in txt or 'self.credentials' in txt:
+            consumers.append(str(rel))
+    assert not consumers, (
+        f'STORE.credentials 出现消费方了：{consumers}。'
+        f'若凭据已真正用于连接设备，本门禁的 used_for_connection 断言与诚实表'
+        f'里「一台实例 = 一台设备」的措辞都需重新评估——不要让两处说法漂移。')
+
+    # 诚实表不该再暗示存在多设备部署模型
+    readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+    assert 'one instance manages one device' in readme, \
+        '诚实表未写明「一台实例管一台设备」——不写会让人以为可以按设备授权'
+    deploy = (ROOT / 'docs' / 'DEPLOY.md').read_text(encoding='utf-8')
+    assert '一台实例 = 一台设备' in deploy, 'DEPLOY.md 未写明部署模型'
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+""",
+    ),
+    Gate(
         id='remediation-matches-diagnosis-direction',
         desc='处置的方向不得与诊断条件相反（带宽下降不得用限速去「修」）',
         on_fail='block',

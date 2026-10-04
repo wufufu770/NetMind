@@ -4,6 +4,26 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Fixed
+- **`/api/config/credentials` 是个空转接口，而字段名让人以为它能连设备**。
+  条目带 `host` / `port` / `username` / `secret_ref`，读起来就是「凭这条去连设备」，
+  但**没有任何代码消费它们**——驱动只读 `NETMIND_SSH_HOST` 等环境变量。
+  运维 POST 一条生产设备的凭据、看到它被存下来、理所当然以为 NetMind 会用它。
+  安全相关的接口上静默空转是有害的。现在每行都带 `used_for_connection: false`
+  与指向真实环境变量的说明
+
+### Changed
+- **写明部署模型：一台实例 = 一台设备**（`docs/DEPLOY.md` 第 7 节 + 诚实表）。
+  由此澄清一个此前措辞有误导的缺口声明——原文写「no per-endpoint or per-device
+  scoping — an admin may act on every device」，暗示存在设备群；实际上单实例只连
+  `NETMIND_SSH_HOST` 那一台，**「按设备」这根轴根本不存在**。
+  C7 据此按「错框架」关闭而非「没做」：两档凭据已交付，
+  按端点细分在单人/小团队自托管单设备场景下是假想需求。
+  要做设备群纳管是另一个产品（牵动凭据模型、每次执行的目标选择、按设备授权）
+- 门禁 `no-inert-credential-surface`：要求凭据接口自述不可用于连接，并探测
+  `STORE.credentials` 是否出现消费方——真出现了就要求重新评估本门禁与诚实表措辞，
+  不让两处说法漂移。两种反例均已注入验证
+
+### Fixed
 - **`scripts/verify_heal.py` 依赖「探测目标恰好可达」这个环境残留**。注入 netem
   只能让**可达**的目标变慢；目标本来就 100% 丢包时，加不加整形都一样，诊断会判成
   link_down，验证作废（实测在实验台重建后即如此）。新增

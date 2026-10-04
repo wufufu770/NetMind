@@ -542,13 +542,13 @@
     },
     {
       "id": "C7-rbac-rate-limit",
-      "title": "RBAC 三档角色 + 每端点速率限制",
+      "title": "RBAC 三档角色（已关闭：两档 + 部署模型说明）",
       "priority": "P1",
       "depends_on": [
         "C1"
       ],
       "status": "done",
-      "note": "轮26 交付。速率限制：按来源令牌桶（write 5/s、read 50/s），超限 429 + Retry-After，放在鉴权之前；NETMIND_RATE_LIMIT=off 可关。凭据分档：NETMIND_ADMIN_TOKEN（全权）+ NETMIND_READONLY_TOKEN（GET/HEAD/OPTIONS，写操作 403 非 401），比对不短路避免时序泄露；门禁 readonly-credential-is-enforced 对 401/403 混淆与时序短路两种反例都验过。**仍缺**：档内不再细分——没有「某人只能管某台设备」这种 per-device 授权，也没有审批流里的角色概念（谁能批、谁只能看）。对单实例自托管够用；多团队共用一套实例时不够，已连同前端角色感知登记为 C7-readonly-ui。"
+      "note": "速率限制部分早已交付（进程内令牌桶，NETMIND_RATE_LIMIT=off 可关）。**RBAC 部分按「错框架」关闭，而不是按「没做」**。原条目写的是「no per-endpoint RBAC」+「按设备授权」，其中后半个前提不成立：一台 NetMind 实例只连 NETMIND_SSH_HOST 那一台设备，STORE.credentials 零消费方（驱动只读 NETMIND_SSH_* 环境变量）——**没有第二台设备可授权，「按设备」这根轴不存在**。按端点细分在单人/小团队自托管单设备场景下是假想需求。实际交付：两档凭据（NETMIND_ADMIN_TOKEN 全方法 / NETMIND_READONLY_TOKEN 安全方法，写操作 403 而非 401）、「一台实例 = 一台设备」写进 DEPLOY.md 第 7 节与诚实表、凭据接口每行自述 used_for_connection:false（原先那组 host/port/username 字段读起来像能连设备，实则空转，属安全相关接口上的有害沉默）、门禁 no-inert-credential-surface 锁死（含「若将来真出现消费方，要求重新评估本条与诚实表措辞」）。**若将来要做设备群纳管，那是另一个产品**（要牵动凭据模型、每次执行的目标选择、按设备授权），不在本轮范围。"
     },
     {
       "id": "C8-self-observability",
