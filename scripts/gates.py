@@ -40,6 +40,88 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='gates-do-not-pollute-each-other',
+        desc='门禁按顺序同进程执行：inline 检查体跑完后 store 必须与跑之前一致',
+        on_fail='block',
+        check=r"""
+# 门禁在同一个进程里按顺序执行，检查体用 exec 跑在模块全局上。
+# 于是一条门禁若改了 STORE 却只还原环境变量，后面所有门禁看到的都是
+# 一个被改过的世界——套件变成顺序相关，症状是「单条全过、整体偶发挂」，
+# 而且极难定位：失败的那条和真正动手的那条根本不是同一条。
+#
+# 真实发生过：`system-status-is-measured` 清了 STORE.models / STORE.telemetry
+# 却只还原 os.environ，于是位置 3 之后的门禁都在空 store 上跑。
+#
+# 只跑 **inline 检查体**：cmd 型门禁（pytest / 演练 / 压测）都在自己的子进程里，
+# 污染不到本进程，跑它们只会让这条门禁慢上一个数量级。
+#
+# 也因此**不能**用「再调一次 loop.py gates」来验证——那条门禁自己就在列表里，
+# 套件会无限递归（实测一次冒出 18 个嵌套进程）。这个坑项目里已经踩过一次
+# （loop-gates 递归），这里再踩一遍就是没看教训。
+import os as _os
+import sys
+# 检查体用 exec 跑在只含 ROOT/re/json/subprocess 的作用域里（见 run_one 的 NS），
+# 所以 sys 与路径都得自己准备好，不能指望外层给。
+sys.path.insert(0, str(ROOT / 'backend'))
+sys.path.insert(0, str(ROOT / 'scripts'))
+import gates as _self      # noqa: E402
+from app.store import STORE  # noqa: E402
+
+# --- 递归防护（两道，缺一不可）-----------------------------------
+# 这条门禁会调用 run_one 去跑别的门禁。若不防住，它自己也在 GATES 列表里，
+# 就会自触发 —— 实测一次冒出 18 个嵌套 loop.py 进程，直接把机器拖垮。
+# 这个坑项目 retro 里已记过一次（loop-gates 递归），这里再踩就是没看教训。
+#
+# 第一道：按 id 跳过自己（下面循环里）。
+# 第二道：环境变量深度计数。**不依赖 id 列表**——万一有人改了 id 或复制了
+# 这段检查体，id 跳过就失效了，深度计数仍然拦得住。宁可漏跑也不能自触发。
+_DEPTH = int(_os.environ.get('NETMIND_POLLUTION_DEPTH', '0') or 0)
+assert _DEPTH < 1, '污染检测门禁出现嵌套调用（NETMIND_POLLUTION_DEPTH>0）——不该发生'
+_os.environ['NETMIND_POLLUTION_DEPTH'] = str(_DEPTH + 1)
+
+_SELF_ID = 'gates-do-not-pollute-each-other'
+assert _SELF_ID in {g.id for g in _self.GATES}, \
+    '这条门禁不在 GATES 列表里——那它证明不了什么，检查体已被误删'
+
+
+def _snap():
+    # 比**内容**，不比对象身份（id()）。
+    #
+    # 早先这里比 id()，结果每个跑 TestClient(app) 的门禁都被算成污染——
+    # 因为 app 启动会 STORE.load() 从磁盘重建列表，合法地产生一批新实例。
+    # 「世界还是不是同一个世界」问的是内容，不是对象是不是同一个。
+    # 反过来也成立：清空再灌进**不同**内容，值一变照样能抓到。
+    #
+    # **不含 logs**：审计流是只追加的，门禁往里写东西本就是应有之义
+    # （谁做了什么、失败了什么都要留痕）。把增长当成污染，等于逼着门禁
+    # 删审计记录——那比多几条日志糟得多。
+    return {'telemetry': [t.model_dump(mode='json') for t in STORE.telemetry],
+            'models': sorted(STORE.models),
+            'rules': len(STORE.rules),
+            'executions': len(STORE.executions),
+            'approvals': len(STORE.approvals)}
+
+
+try:
+    _before = _snap()
+    _ran = []
+    for _g in _self.GATES:
+        if not _g.check or _g.id == _SELF_ID:
+            continue                      # 第一道：跳过自己
+        _status, _detail = _self.run_one(_g)
+        _ran.append(_g.id)
+    _after = _snap()
+    assert _after == _before, (
+        f'跑完 {len(_ran)} 条 inline 门禁后 store 状态与跑之前不一致——'
+        f'有门禁改了共享状态却没还原，后面的门禁是在被污染的世界里跑的。\n'
+        f'    跑过的门禁: {_ran}\n'
+        f'    之前: {_before}\n'
+        f'    之后: {_after}')
+finally:
+    _os.environ['NETMIND_POLLUTION_DEPTH'] = str(_DEPTH)
+""",
+    ),
+    Gate(
         id='frontend-auth-contract',
         desc='前端的认证头必须与后端一致，且不得有写死的默认凭据',
         on_fail='block',
@@ -253,10 +335,15 @@ sys.path.insert(0, str(ROOT / 'backend'))
 _keys = ('NETMIND_DRIVER', 'NETMIND_ADMIN_TOKEN', 'NETMIND_READONLY_TOKEN',
          'NETMIND_ALLOW_ANON_READONLY', 'NETMIND_TRUST_PROXY')
 _saved = {k: os.environ.get(k) for k in _keys}
+from app.store import STORE                           # noqa: E402
+# store 也要还原：门禁按顺序在同一进程里跑，只还原环境变量的话，这条之后的
+# 所有门禁看到的都是一个被我清空过的世界——套件变成顺序相关，就会出现
+# 「单条全过、整体偶发挂」这类没法定位的现象。
+_saved_telemetry = list(STORE.telemetry)
+_saved_models = {k: v for k, v in STORE.models.items()}
 try:
     from app.core import access as _access            # noqa: E402
     from app.schemas import TelemetrySnapshot         # noqa: E402
-    from app.store import STORE                       # noqa: E402
     from fastapi.testclient import TestClient         # noqa: E402
     from app.main import app as fastapi_app           # noqa: E402
 
@@ -295,6 +382,12 @@ try:
         assert ro['auth_mode'] == 'readonly-token', f"只读凭据的 auth_mode 是 {ro['auth_mode']}"
         assert adm['auth_mode'] == 'token', f"管理员凭据的 auth_mode 是 {adm['auth_mode']}"
 finally:
+    # store 必须在 finally 里还原。只还原 os.environ 是不够的：门禁按顺序在
+    # 同一个进程里跑，这条清空过的 store 会留给后面所有门禁，套件就此变成
+    # 顺序相关——症状是「单条全过、整体偶发挂」，而且失败的那条根本不是
+    # 动手的那条，极难定位。由 gates-do-not-pollute-each-other 盯着。
+    STORE.telemetry.clear(); STORE.telemetry.extend(_saved_telemetry)
+    STORE.models.clear();   STORE.models.update(_saved_models)
     for k, v in _saved.items():
         if v is None:
             os.environ.pop(k, None)
@@ -689,6 +782,9 @@ _keys = ('NETMIND_HEAL_IFACE', 'NETMIND_HEAL_BACKUP_ROUTE', 'NETMIND_HEAL_MAX_AT
 _saved = {k: os.environ.get(k) for k in _keys}
 for k in _keys:
     os.environ.pop(k, None)
+from app.store import STORE  # noqa: E402
+_saved_telemetry = list(STORE.telemetry)
+_saved_attempts = {k: dict(v) for k, v in STORE.heal_attempts.items()}
 
 from app.core import heal_guard                    # noqa: E402
 from app.core.workflow import ORCHESTRATOR         # noqa: E402
@@ -741,6 +837,10 @@ try:
     assert STORE.to_json().get('heal_attempts'), 'heal_attempts 未进持久化快照'
     STORE.heal_attempts.clear()
 finally:
+    # 这条门禁会真跑两遍闭环，而闭环的 TelemetryAgent 会往 STORE.telemetry 里
+    # 追加采样。不还原的话，位置在它之后的门禁读到的是被这次闭环改过的遥测。
+    STORE.telemetry.clear(); STORE.telemetry.extend(_saved_telemetry)
+    STORE.heal_attempts.clear(); STORE.heal_attempts.update(_saved_attempts)
     for k, v in _saved.items():
         if v is None:
             os.environ.pop(k, None)
