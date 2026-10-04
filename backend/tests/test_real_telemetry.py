@@ -228,3 +228,60 @@ def test_normal_carries_its_evidence():
     assert d.type == 'normal'
     assert d.evidence.get('latency_ms') == 3.2
     assert d.evidence.get('samples') == 4
+
+
+# ---------- 缺测不得被编成测量值 ----------
+#
+# to_snapshot 此前对缺失的 rtt/loss 填 999.0 / 1.0 这两个哨兵值。于是
+# 「ping 丢了包所以算不出 RTT」会变成「延迟 999ms、丢包 100%」，
+# diagnose() 据此判 link_down —— **把「没测到」变成了「测到断链」**，
+# 可能对一台其实正常的设备下发处置。带宽同理：没测就填 0.0 也是编一个数。
+
+def test_missing_rtt_stays_missing_instead_of_a_sentinel():
+    from app.diagnose.lab_collector import to_snapshot
+    m = {'transmitted': 10, 'received': 2, 'rtt_avg_ms': None, 'loss_ratio': 0.8}
+    snap = to_snapshot(m, source='lab')
+    assert snap.latency_ms is None, '拿不到 RTT 时又填了哨兵值'
+    assert snap.packet_loss == 0.8, '有丢包就该照实记着'
+
+
+def test_missing_throughput_is_not_zero():
+    from app.diagnose.lab_collector import to_snapshot
+    snap = to_snapshot({'transmitted': 10, 'received': 10,
+                        'rtt_avg_ms': 1.0, 'loss_ratio': 0.0}, source='lab')
+    assert snap.throughput_mbps is None, '没做带宽测量却填了 0.0'
+
+
+def test_partial_loss_does_not_get_diagnosed_as_link_down():
+    """丢包到算不出 RTT 时，依据是丢包本身，不是伪造的 999ms。"""
+    from app.diagnose.lab_collector import to_snapshot
+    snap = to_snapshot({'transmitted': 10, 'received': 2,
+                        'rtt_avg_ms': None, 'loss_ratio': 0.8}, source='lab')
+    d = TELEMETRY.diagnose([snap])
+    assert d.type != 'link_down', '80% 丢包但 RTT 缺失，被当成断链了'
+    assert d.evidence.get('latency_ms') is None, '证据里不该出现编造的延迟'
+
+
+def test_nothing_measured_gives_zero_confidence_normal():
+    """两项都缺时不要给「健康」，更不要给高置信度。"""
+    from app.diagnose.lab_collector import to_snapshot
+    snap = to_snapshot({'transmitted': 0, 'received': 0,
+                        'rtt_avg_ms': None, 'loss_ratio': None}, source='lab')
+    d = TELEMETRY.diagnose([snap])
+    assert d.type == 'normal'
+    assert d.confidence == 0.0, f'两项都没测到却给了 {d.confidence} 的把握'
+    assert '未测到' in str(d.evidence) or '无法判定' in str(d.evidence)
+
+
+def test_alert_wording_does_not_claim_an_sla_breach():
+    """alert 的真实含义是「跨过内置判据」，项目里没有用户约定的 SLA。"""
+    # 路径相对**本文件**而不是 cwd：CI 的 pytest 步骤 working-directory 是
+    # backend/，从仓库根跑能过、从 backend/ 跑就失败——那不是可复现的测试。
+    import pathlib
+    _app = pathlib.Path(__file__).resolve().parent.parent / 'app'
+    src = ((_app / 'routers' / 'system.py').read_text(encoding='utf-8')
+           + (_app / 'routers' / 'telemetry.py').read_text(encoding='utf-8'))
+    # 注释里可以提这句（解释为什么不这么写），但代码字符串里不能出现
+    code = '\n'.join(l.split('#')[0] for l in src.splitlines())
+    assert 'SLA threshold exceeded' not in code, \
+        '仍在用「SLA threshold exceeded」——项目未定义 SLO 目标，不能声称 SLA 被违反'

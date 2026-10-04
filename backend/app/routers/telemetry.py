@@ -54,7 +54,8 @@ def telemetry_anomaly(limit: int=12):
     rows=[]
     history = STORE.telemetry[-limit:] or [TELEMETRY.sample() for _ in range(min(limit, 3))]
     for snap in history:
-        rows.append({'ts': snap.ts, 'latency_ms': snap.latency_ms, 'packet_loss': snap.packet_loss, 'severity': 'warning' if snap.alert else 'normal', 'reason': 'SLA threshold exceeded' if snap.alert else 'within baseline'})
+        rows.append({'ts': snap.ts, 'latency_ms': snap.latency_ms, 'packet_loss': snap.packet_loss, 'severity': 'warning' if snap.alert else 'normal', 'reason': ('超过内置劣化判据（非用户约定的 SLA：项目未定义 SLO 目标）'
+                        if snap.alert else '低于内置劣化判据')})
     return rows
 
 # 没有约定目标时不做可行性判定。硬编一个 50ms 门槛等于替用户决定了

@@ -56,6 +56,17 @@ def _real_snapshot() -> tuple[TelemetrySnapshot | None, str]:
 SIM_SOURCE_DISCOUNT = 0.6
 
 
+# 测量值可为缺。缺就是缺，不要用 0 顶替——0 是个看起来很健康的数字。
+def _measured(v) -> float | None:
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None      # NaN 同样当缺测
+
+
 def _confidence(strength: float, sample_size: int, corroborated: bool = False,
                 simulated: bool = False) -> float:
     """置信度由可观测状态推导（CONTRIBUTING 规则 2），不是写死的常数。
@@ -89,11 +100,18 @@ def _normal_confidence(latency_ms: float, loss: float, sample_size: int,
     越有底气说正常。三者缺一不可。
     """
     # 距离最紧的那条阈值越近，越说不出「一切正常」
-    latency_margin = max(0.0, LATENCY_DEGRADED_MS - float(latency_ms or 0.0))
-    loss_margin = max(0.0, LOSS_DEGRADED - float(loss or 0.0))
-    # 延迟是主判据，丢包兜底；取两者中更保守的那个
-    strength = min(1.0, latency_margin / LATENCY_DEGRADED_MS,
-                   loss_margin / LOSS_DEGRADED if LOSS_DEGRADED else 1.0)
+    # 缺测的那一项不参与「离阈值多远」的计算——它本来就没有距离可言
+    margins = []
+    if latency_ms is not None:
+        margins.append(max(0.0, LATENCY_DEGRADED_MS - float(latency_ms)) / LATENCY_DEGRADED_MS)
+    if loss is not None and LOSS_DEGRADED:
+        margins.append(max(0.0, LOSS_DEGRADED - float(loss)) / LOSS_DEGRADED)
+    if not margins:
+        return 0.0
+    # margins 里已经是**归一化**的（各自除以自己的阈值），直接取最保守的那个。
+    # 之前那版把归一化后又除了一遍阈值，等于二次缩放，读数差异被压平——
+    # 45ms 与 1ms 都落到同一个置信度，正是「贴阈值与极低给出相同结果」的成因。
+    strength = min(1.0, min(margins))
     return _confidence(strength, sample_size, simulated=simulated)
 
 
@@ -154,9 +172,14 @@ class TelemetryService:
         last=snapshots[-1]
         # 模拟数据得出的结论，置信度打折：凭硬编码常量下的判断不该有高置信度。
         sim=str(getattr(last, 'source', '') or '') in ('simulated', 'synthetic')
-        loss=float(last.packet_loss or 0.0)
-        latency=float(last.latency_ms or 0.0)
-        n=len(snapshots)
+        # 缺测就是缺测。此前 `float(x or 0.0)` 会把「没测到」变成「延迟 0、丢包 0」，
+        # 也就是一份看起来完美健康的快照——然后判成 high-confidence 的 normal。
+        loss = _measured(last.packet_loss)
+        latency = _measured(last.latency_ms)
+        if loss is None and latency is None:
+            return Diagnosis(type='normal', confidence=0.0,
+                             evidence={'reason': '最近的遥测样本里延迟与丢包都未测到，无法判定',
+                                       'source': str(getattr(last, 'source', ''))})
 
         # 带宽只在有基线时参与，且是相对判定；没有基线就不猜
         bw_drop=None
@@ -179,7 +202,7 @@ class TelemetryService:
         # 延迟劣化即可判定拥塞。带宽是佐证不是必要条件——实验台实测：
         # 注入 120ms 延迟不限速时带宽 18.66Mbps，与健康态 21.08 接近，
         # 说明「延迟升高」与「带宽受限」是独立的两件事。
-        if latency > LATENCY_DEGRADED_MS:
+        if latency is not None and latency > LATENCY_DEGRADED_MS:
             ev={'latency_ms':latency}
             if sim: ev['source']=str(last.source)
             strength=min(1.0, (latency - LATENCY_DEGRADED_MS) / LATENCY_DEGRADED_MS)
@@ -195,7 +218,8 @@ class TelemetryService:
         return Diagnosis(type='normal',
                          evidence={'latency_ms': latency, 'packet_loss': loss,
                                    'samples': n},
-                         confidence=_normal_confidence(latency, loss, n, sim))
+                         confidence=(0.0 if (latency is None and loss is None)
+                                    else _normal_confidence(latency, loss, n, sim)))
     def heal(self, diagnosis: Diagnosis, *, iface: str | None = None,
              backup: str | None = None,
              bridge: str | None = None) -> HealingReport:

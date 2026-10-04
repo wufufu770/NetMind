@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import os
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from ..core.telemetry import LATENCY_DEGRADED_MS, LOSS_DEGRADED
 from ..schemas import SystemStatus, Status
 from ..store import STORE
 from ..realtime import WS
@@ -143,7 +144,16 @@ async def ws_events(ws: WebSocket):
             snap=TELEMETRY.sample()
             await ws.send_json({'type':'telemetry','data':snap.model_dump(mode='json')})
             if snap.alert:
-                await ws.send_json({'type':'notification','data':{'severity':'warning','message':'telemetry alert: SLA threshold exceeded'}})
+                await ws.send_json({'type':'notification','data':{
+                    'severity':'warning',
+                    # 不写 'SLA threshold exceeded'：项目里没有用户约定的 SLA
+                    # （面板已如实声明「未定义 SLO 目标」），alert 置位的真实
+                    # 原因是跨过了**内置**判据。说了 SLA 就是在声称一个没测过的东西。
+                    'message': (f'遥测告警：延迟 {snap.latency_ms if snap.latency_ms is not None else "未测到"}ms'
+                               f'（内置劣化线 {LATENCY_DEGRADED_MS:.0f}ms）、'
+                               f'丢包 {snap.packet_loss if snap.packet_loss is not None else "未测到"}'
+                               f'（内置劣化线 {LOSS_DEGRADED:.0%}）'),
+                    'source': str(snap.source)}})
             await asyncio.sleep(1)
     except WebSocketDisconnect:
         pass

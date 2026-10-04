@@ -154,6 +154,28 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`tests-are-reproducible` 门禁两次都在仓库根跑，漏掉了「换个 cwd 就挂」的测试**。
+  CI 的 pytest 步骤是 `working-directory: backend` + `pytest -q`，而我本地从根
+  目录跑 `pytest backend/tests`——**两个不是一回事**。本轮就有一个新测试用了
+  相对路径 `backend/app/routers/system.py`，从根过、从 `backend/` 挂，
+  由 `ci-steps-are-executable` 抓出来。门禁现已加第三次运行，按 CI 的方式执行；
+  已在「只在根目录通过」的反例上验证会失败
+- 我自己写的那条测试已改为相对**本文件**定位路径。**只在某个 cwd 下通过的测试
+  不是可复现的测试**
+
+- **「没测到」被变成「测到 999ms、丢包 100%」**。`to_snapshot` 对缺失的
+  rtt/loss 填 `999.0` / `1.0` 这两个哨兵值，于是「ping 丢包到算不出 RTT」会
+  变成一份「延迟 999ms、丢包 100%」的快照，`diagnose()` 据此判 `link_down`——
+  可能对一台**其实正常**的设备下发处置。带宽同理：没测就填 `0.0` 也是编一个数。
+  现 `TelemetrySnapshot` 的三个测量字段改为可缺，缺就是 `None`；`diagnose()`
+  的 `float(x or 0.0)` 一并改掉（那会把「没测到」变成「延迟 0、丢包 0」，
+  也就是一份看起来完美健康的快照）。实测：80% 丢包 + RTT 缺失现在按丢包判
+  `congestion` 而非 `link_down`；两项都缺时返回 `normal` 置信度 **0.0** 并说明原因
+- **告警文案声称「SLA threshold exceeded」**。项目里没有用户约定的 SLA——
+  面板已如实声明「未定义 SLO 目标」——`alert` 置位的真实原因是跨过**内置**判据。
+  改为直接给出实测值与被跨过的内置阈值（延迟 50ms / 丢包 5%）。门禁
+  `no-sentinel-measurements` 锁死两类问题，两个反例均已注入证伪
+
 - **UI 对「没数据」编出关于设备与数据可信度的断言，四处**：
   ① `node.ip || node.status || '可用'` —— 既没有 IP 也没有状态的设备被标成
      「**可用**」，而没有任何数据这么说

@@ -100,9 +100,13 @@ class DeployResult(BaseModel):
 
 class TelemetrySnapshot(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    latency_ms: float = 23
-    packet_loss: float = 0.0002
-    throughput_mbps: float = 82
+    # 测量值可以缺：没测到就是没测到。此前 to_snapshot 对缺失的 rtt/loss 填
+    # 999.0 / 1.0 这两个哨兵值，下游 diagnose() 读到 999ms + 100% 丢包就判
+    # link_down ——**把「没测到」变成了「测到断链」**，可能导致对一台其实正常
+    # 的设备下发处置。宁可让字段为空，也不编一个像样的测量值。
+    latency_ms: Optional[float] = None
+    packet_loss: Optional[float] = None
+    throughput_mbps: Optional[float] = None
     src: str = 'teacher_terminal'
     dst: str = 'meeting_server'
     alert: bool = False

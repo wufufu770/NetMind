@@ -65,6 +65,60 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='no-sentinel-measurements',
+        desc='缺测不得被填成哨兵数值；告警文案不得声称 SLA 被违反',
+        on_fail='block',
+        check=r"""
+# 「默认值冒充观测值」在**遥测层**的形态。此前 to_snapshot 对缺失的 rtt/loss
+# 填 999.0 / 1.0：ping 丢包到算不出 RTT 时，快照变成「延迟 999ms、丢包 100%」，
+# diagnose() 据此判 link_down —— **把「没测到」变成了「测到断链」**，
+# 可能对一台其实正常的设备下发处置。
+#
+# 哨兵值是合法 float，结构检查抓不住，只能按行为判定。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+os.environ.pop('NETMIND_ADMIN_TOKEN', None)
+os.environ.pop('NETMIND_PROBE_TARGET', None)
+try:
+    from app.diagnose.lab_collector import to_snapshot    # noqa: E402
+    from app.core.telemetry import TELEMETRY              # noqa: E402
+
+    # 1) 缺测必须是 None，不能是任何具体数字
+    s1 = to_snapshot({'transmitted': 10, 'received': 2,
+                      'rtt_avg_ms': None, 'loss_ratio': 0.8}, source='lab')
+    assert s1.latency_ms is None, \
+        f'拿不到 RTT 却给了 {s1.latency_ms}——那是编出来的测量值'
+    assert s1.packet_loss == 0.8, '有丢包就该照实记着'
+
+    s2 = to_snapshot({'transmitted': 10, 'received': 10,
+                      'rtt_avg_ms': 1.0, 'loss_ratio': 0.0}, source='lab')
+    assert s2.throughput_mbps is None, f'没做带宽测量却给了 {s2.throughput_mbps}'
+
+    # 2) 两项都缺时不得给「高置信度正常」
+    s3 = to_snapshot({'transmitted': 0, 'received': 0,
+                      'rtt_avg_ms': None, 'loss_ratio': None}, source='lab')
+    d3 = TELEMETRY.diagnose([s3])
+    assert d3.confidence == 0.0, \
+        f'延迟与丢包都没测到，却给出 {d3.confidence} 的把握'
+
+    # 3) 部分缺测不得被推断成 link_down
+    d1 = TELEMETRY.diagnose([s1])
+    assert d1.type != 'link_down', \
+        '只有 80% 丢包、RTT 缺失，就被当成断链——依据是伪造的 999ms'
+    assert d1.evidence.get('latency_ms') is None
+
+    # 4) 告警文案不得声称 SLA 被违反：项目没有用户约定的 SLO 目标
+    for _f in ('backend/app/routers/system.py', 'backend/app/routers/telemetry.py'):
+        _text = (ROOT / _f).read_text(encoding='utf-8')
+        _code = chr(10).join(l.split('#')[0] for l in _text.splitlines())
+        assert 'SLA threshold exceeded' not in _code, (
+            f'{_f} 仍用「SLA threshold exceeded」——面板已如实声明「未定义 SLO 目标」，'
+            f'这里却声称 SLA 被违反')
+finally:
+    pass
+""",
+    ),
+    Gate(
         id='changelog-sections-not-duplicated',
         desc='CHANGELOG 每个版本段里同名小节只许出现一次（防止逐轮追加成十几段）',
         on_fail='block',
@@ -1833,19 +1887,30 @@ from pathlib import Path as P
 #   ③ STORE 的后台自动保存线程与故障注入的全局替换相撞
 # 三条都在 conftest 里治了。治完必须能测出来「真的治好了」。
 
-def _summary():
-    r = subprocess.run([sys.executable, '-m', 'pytest', 'backend/tests/', '-q',
+def _summary(cwd=None, target='backend/tests/'):
+    r = subprocess.run([sys.executable, '-m', 'pytest', target, '-q',
                         '--no-header', '-p', 'no:randomly'],
-                       cwd=ROOT, capture_output=True, text=True, timeout=900)
+                       cwd=cwd or ROOT, capture_output=True, text=True, timeout=900)
     m = re.search(r'([0-9]+) passed', r.stdout)
     f = re.search(r'([0-9]+) failed', r.stdout)
-    return (int(m.group(1)) if m else -1), (int(f.group(1)) if f else 0), r.stdout[-300:]
+    return (int(m.group(1)) if m else -1), (int(f.group(1)) if f else 0), r.stdout[-400:]
 
 p1, f1, out1 = _summary()
 assert f1 == 0, f'第 1 次全量测试有 {f1} 条失败: {out1}'
 p2, f2, out2 = _summary()
 assert f2 == 0, f'第 2 次全量测试有 {f2} 条失败——不可复现: {out2}'
 assert p1 == p2, f'两次运行通过数不同: {p1} vs {p2}——存在跨运行状态泄漏'
+
+# 还要按 **CI 的方式**再跑一次：ci.yml 的 pytest 步骤是
+# `working-directory: backend` + `pytest -q`。上面两次都在仓库根，
+# 于是「测试里用了相对路径、换个 cwd 就挂」这类问题这条门禁根本发现不了
+# ——实测就是这么漏掉了一个只有从根目录才通过的测试。
+# 只在某个 cwd 下通过的测试不是可复现的测试。
+p3, f3, out3 = _summary(cwd=(ROOT / 'backend'), target='tests/')
+assert f3 == 0, (
+    f'按 CI 的方式跑（working-directory=backend）有 {f3} 条失败: {out3}\n'
+    f'这类失败通常是测试里用了相对路径——它只在某个 cwd 下通过，不是可复现的。')
+assert p3 == p1, f'换 cwd 后通过数不同: 根目录 {p1} vs backend/ {p3}'
 """,
     ),
     Gate(

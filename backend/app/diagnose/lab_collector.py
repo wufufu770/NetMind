@@ -84,9 +84,13 @@ def to_snapshot(measured: dict, source: str = 'lab') -> TelemetrySnapshot:
     """测量值 → 快照。丢包即告警依据；延迟缺失不填 0。"""
     state = classify(measured)
     return TelemetrySnapshot(
-        latency_ms=measured['rtt_avg_ms'] if measured['rtt_avg_ms'] is not None else 999.0,
-        packet_loss=measured['loss_ratio'] if measured['loss_ratio'] is not None else 1.0,
-        throughput_mbps=0.0,                      # 尚未做带宽测量；不编造
+        # 缺测就留空。此前对缺失的 rtt/loss 填 999.0 / 1.0 这两个哨兵值，
+        # 下游 diagnose() 读到「999ms + 100% 丢包」就判 link_down——
+        # **把「没测到」变成了「测到断链」**，可能对一台其实正常的设备下发处置。
+        # 带宽同理：没测带宽就填 0.0 也同样是编一个数。
+        latency_ms=measured['rtt_avg_ms'],
+        packet_loss=measured['loss_ratio'],
+        throughput_mbps=None,                    # 尚未做带宽测量；不编造
         alert=state != 'healthy',
         source=source,
     )
