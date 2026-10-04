@@ -4,7 +4,7 @@
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 35,
   "phase": "plan",
-  "updated": "2026-10-03T23:19:28+08:00",
+  "updated": "2026-10-04T18:01:42+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -494,7 +494,12 @@
       "status": "pass"
     }
   ],
-  "current_round": null,
+  "current_round": {
+    "id": "C7-rbac-rate-limit",
+    "title": "拍板不做 per-device RBAC —— 框架错了，真实缺口是「空转的凭据接口」",
+    "why": "用户授权我拍板下一项。核实 C7 的前提时发现：一台 NetMind 实例只连NETMIND_SSH_HOST 那一台设备，STORE.credentials 零消费方，「按设备授权」这根轴根本不存在——诚实表那句措辞本身有误导。",
+    "deliverable": "① 改了方向而不是照做。核实前提：SSHDriver 目标是单个 NETMIND_SSH_HOST，PROBE_TARGET / HEAL_IFACE / HEAL_BACKUP_ROUTE 全是单设备语义；全仓搜 STORE.credentials 消费方为零（唯一引用是持久化 dump），驱动只读 NETMIND_SSH_* 环境变量。**没有第二台设备可授权**，按端点细分在单人/小团队自托管单设备下也是假想需求。要做设备群纳管是另一个产品（牵动凭据模型、执行目标选择、按设备授权）。② 真正查出来的缺口：/api/config/credentials 的条目带 host/port/username/secret_ref，读起来就是「凭这条去连设备」，却没有任何代码消费它。运维 POST 一条生产凭据、看到它被存下来、理所当然以为会生效——**安全相关接口上的静默空转是有害的**。未删接口（破坏性变更，且留档合理），改为每行自述 used_for_connection:false 并指向真正生效的环境变量。③ 写明部署模型：DEPLOY.md 新增第 7 节「一台实例 = 一台设备」，说明要管设备群就起多实例（store 与 token 各自独立）——这是刻意边界，不是能力缺失。后续章节重新编号 8→11，已核对无失效交叉引用。④ 门禁 no-inert-credential-surface：要求接口自述不可用于连接，并探测 STORE.credentials 是否出现消费方——真出现了就要求重新评估本门禁与诚实表措辞，不让两处说法漂移。两种反例均已注入证伪：① 去掉自述字段 → 抓到；② 让 telemetry.py 真的去读 credentials → 抓到。⑤ C7 按「错框架」关闭而非「没做」，理由写进 backlog。过程中门禁 state-based-on-is-honest 报出 based_on 落后 5 个 commit，**这条门禁本身是对的**——改了状态没提交就是过期快照。commit 后用 loop.py round 刷新；它第一次没落盘是因为空轮守卫（deliverable 为空则拒绝写入），补上交付描述后才写入。后端 275 测试、40 条门禁、去 AI 味门 0 命中。"
+  },
   "backlog": [
     {
       "id": "C1-auth-default-safe",
@@ -1805,7 +1810,7 @@
     "deliverable": "",
     "planned_at": "2026-10-03T23:19:18+08:00"
   },
-  "based_on": "8fb17fb",
+  "based_on": "7312898",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
