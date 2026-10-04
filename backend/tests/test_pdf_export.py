@@ -221,3 +221,54 @@ def test_sections_keep_real_content_when_data_exists():
     assert '未下发到设备' not in md, '明明有 deploy 记录却说没下发'
     assert '成功：True' in md
     assert 'tc qdisc del dev eth0 root' in md
+
+
+# ---------- rich.html 的渲染 ----------
+
+def test_renderer_emits_no_empty_headings():
+    """空行曾被渲染成空的 `<h2></h2>`。
+
+    第一版是一行三元：`… if line and not line.startswith('#') else '<h2>…</h2>'`，
+    于是 markdown 里每节之间的空行都落进 else 分支，各变成一个空标题——
+    看起来像报告缺内容。
+    """
+    from app.core.report_renderer import REPORT_RENDERER
+    from app.schemas import Execution
+
+    html = REPORT_RENDERER.html(Execution(execution_id='e-1', status='success'))
+    assert '<h2></h2>' not in html
+    assert '<h1></h1>' not in html
+    assert '</h' in html
+    # 不得有空的段落节点
+    assert '<p></p>' not in html
+
+
+def test_renderer_preserves_heading_levels():
+    """`#` 与 `##` 曾全被拍平成 `<h2>`，标题层级丢失。"""
+    from app.core.report_renderer import REPORT_RENDERER
+    from app.schemas import Execution
+
+    html = REPORT_RENDERER.html(Execution(execution_id='e-1', status='success'))
+    assert '<h1>' in html and 'NetMind 执行报告' in html
+    for n in range(1, 7):
+        assert f'<h2>{n}.' in html, f'缺第 {n} 节的标题'
+
+
+def test_renderer_escapes_html_in_content():
+    """执行内容里的尖括号不能破坏页面结构。"""
+    from app.core.report_renderer import REPORT_RENDERER
+    from app.schemas import Execution
+
+    ex = Execution(execution_id='e-<script>', status='success')
+    html = REPORT_RENDERER.html(ex)
+    assert '<script>' not in html
+    assert '&lt;script&gt;' in html
+
+
+def test_renderer_declares_language_and_charset():
+    from app.core.report_renderer import REPORT_RENDERER
+    from app.schemas import Execution
+
+    html = REPORT_RENDERER.html(Execution(execution_id='e-1', status='success'))
+    assert '<meta charset="utf-8">' in html
+    assert 'lang="zh-CN"' in html

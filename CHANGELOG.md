@@ -187,6 +187,14 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`rich.html` 把每个空行渲染成一个空的 `<h2></h2>`**。第一版是一行三元表达式
+  `… if line and not line.startswith('#') else '<h2>…</h2>'`——空行也落进 else
+  分支，于是 markdown 每节之间的空行各变成一个空标题，**看起来像报告缺内容**。
+  同时 `#` 与 `##` 全被拍平成 `<h2>`，标题层级丢失。现按行首 `#` 个数决定级别、
+  空行跳过，并补 `lang="zh-CN"`。补 4 个用例 + 门禁
+  `rich-html-has-no-empty-headings`（两个反例均已证伪：空行不再跳过 → 抓到；
+  层级拍平 → 抓到）
+
 - **干跑报告从「## 3.」直接跳到「## 6.」**。第 2–5 节是条件渲染而编号写死 1–6，
   于是不下发、不自愈时报告少了第 4、5 节——读者看到编号空档，**分不清是这步
   没做还是报告丢了内容**，而合规场景里两者都会被读成「出问题了」。

@@ -65,6 +65,38 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='rich-html-has-no-empty-headings',
+        desc='rich.html 不得渲染出空标题；标题层级要保留',
+        on_fail='block',
+        check=r"""
+# 第一版是一行三元表达式：
+#   f'<p>…</p>' if line and not line.startswith('#') else f'<h2>…</h2>'
+# 两个问题都实测过：
+#   ① **空行也落进 else 分支** —— markdown 每节之间都有空行，于是每个空行
+#      渲染成一个空的 `<h2></h2>`，看起来像报告缺内容
+#   ② `#` 与 `##` 全被拍平成 `<h2>`，标题层级丢失
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+try:
+    from app.core.report_renderer import REPORT_RENDERER
+    from app.schemas import Execution
+
+    _html = REPORT_RENDERER.html(Execution(execution_id='e-1', status='success'))
+    for _bad in ('<h1></h1>', '<h2></h2>', '<h3></h3>', '<p></p>'):
+        assert _bad not in _html, f'renderer 产出了空节点 {_bad}'
+    assert '<h1>' in _html, '文档标题没有用 h1'
+    for _n in range(1, 7):
+        assert f'<h2>{_n}.' in _html, f'缺第 {_n} 节的 h2 标题'
+    assert '<meta charset="utf-8">' in _html
+    # 内容里的尖括号必须转义，否则执行 id 之类的字段能破坏页面结构
+    _h2 = REPORT_RENDERER.html(Execution(execution_id='e-<script>', status='success'))
+    assert '<script>' not in _h2, '执行 id 里的尖括号没转义'
+    assert '&lt;script&gt;' in _h2
+finally:
+    pass
+""",
+    ),
+    Gate(
         id='report-keeps-every-section',
         desc='报告六节恒在；条件渲染的节缺做时必须明说，不得留下编号空档',
         on_fail='block',
