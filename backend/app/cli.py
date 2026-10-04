@@ -37,6 +37,40 @@ def status():
     print(_get('/api/system/status'))
 
 @app.command()
+def readiness():
+    """配置是否齐全、缺什么、有多少条。这些数字都是真实的计数，不是占位。"""
+    print(_get('/api/readiness'))
+
+@app.command('notifications')
+def notifications(limit: int=20):
+    """告警与关键事件。空结果会说明，而不是什么都不打印。"""
+    rows=_get('/api/notifications', limit=limit)
+    if not rows:
+        print('没有告警或关键事件')
+        return
+    for n in rows:
+        print(f"[{n.get('level','-')}] {n.get('source','来源未标注')}: {n.get('message','')}")
+
+@app.command()
+def vendors():
+    """厂商能力矩阵。**验证等级**是重点：只有 verified 的那家在真机上跑通过。"""
+    v=_get('/api/vendors')
+    items=(v.get('vendors') if isinstance(v, dict) else v) or []
+    # 字段是 level 不是 verification——写错会让「验证等级」整列显示成 '-'，
+    # 而那一列正是这张表要说的重点。
+    t=Table('厂商','型号','传输','驱动','验证等级')
+    for x in items:
+        t.add_row(str(x.get('name','-')), ','.join(x.get('kinds') or []) or '-',
+                  str(x.get('transport','-')), str(x.get('driver','-')),
+                  str(x.get('level','未标注')))
+    console.print(t)
+    for x in items:
+        if x.get('note'):
+            console.print(f"· {x.get('name')}: {x['note']}")
+    if isinstance(v, dict) and v.get('summary'):
+        console.print('汇总：' + json.dumps(v['summary'], ensure_ascii=False))
+
+@app.command()
 def submit(text: str, dry_run: bool=False):
     print(_post('/api/intent/submit', {'text':text,'dry_run':dry_run}))
 

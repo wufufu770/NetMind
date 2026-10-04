@@ -4,6 +4,14 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- CLI 补三个命令，覆盖此前只在 HTTP 层存在、CLI 摸不到的端点：
+  `netmind vendors`（厂商能力矩阵，**验证等级逐行标出**：verified 是真机跑通过的、
+  declared 是映射齐备未验、blocked 是缺插件）、`netmind readiness`（配置齐全度与
+  真实计数）、`netmind notifications`（告警与关键事件，空结果会说明）。
+  补 6 个用例，并在写门禁时发现第一版把厂商字段写成 `verification`（真实字段是
+  `level`），于是「验证等级」整列显示 `-`——而那一列正是这张表唯一要说的事。
+  **一列全是 `-` 的表比没有这张表更糟**：看起来像「没有等级信息」，实际是「没读对字段」
+
 - `frontend/src/lib/charts.js`：折线取点与列表关键词检索。Sparkline 此前
   `Number(x[field] || 0)`——测不到的字段被当成 0，于是延迟图上会画出一条真实的
   「0ms」读数（比缺测更坏，它看起来像个好消息）；遥测字段改成可缺之后这条路更是

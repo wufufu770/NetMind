@@ -65,6 +65,53 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='cli-renders-real-fields',
+        desc='CLI 表格不得整列显示 `-`——那通常是没读对字段名，不是「没有该信息」',
+        on_fail='block',
+        check=r"""
+# `netmind vendors` 第一版把字段写成 `verification`，真实响应里是 `level`，
+# 于是「验证等级」整列显示 `-`——而那一列恰恰是这张表唯一要说的事：
+# 只有 verified 的那家在真机上跑通过采集。
+#
+# **一列全是 `-` 的表比没有这张表更糟**：它看起来像「没有等级信息」，
+# 实际是「我没读对字段」。而这种错在肉眼扫一遍输出时极易滑过去。
+import json
+import subprocess
+import sys
+
+_lines = [
+    "import json, sys",
+    "sys.path.insert(0, 'backend')",
+    "import app.cli as m",
+    "payload = {'summary': {'verified': 1, 'declared': 1},",
+    "           'vendors': [{'name': 'probe-vendor', 'kinds': ['k1'],",
+    "                       'transport': 'netmiko', 'driver': 'd1',",
+    "                       'level': 'verified', 'note': 'n'}]}",
+    "m._get = lambda *a, **k: payload",
+    "from typer.testing import CliRunner",
+    "res = CliRunner().invoke(m.app, ['vendors'])",
+    "print(json.dumps({'exit_code': res.exit_code, 'stdout': res.stdout}, ensure_ascii=False))",
+]
+_probe = chr(10).join(_lines)   # 直接用原始行：repr() 之后每行会变成裸字符串字面量，
+                      # 拼起来的源码是一串什么都不做的表达式，不是原代码
+_r = subprocess.run([sys.executable, '-c', _probe], cwd=ROOT,
+                    capture_output=True, text=True, timeout=180)
+assert _r.returncode == 0, f'探针跑不起来: {_r.stderr[-300:]}'
+_d = json.loads(_r.stdout.strip().splitlines()[-1])
+assert _d['exit_code'] == 0, f"netmind vendors 退出码 {_d['exit_code']}"
+_row = next((l for l in _d['stdout'].splitlines() if 'probe-vendor' in l and '│' in l), '')
+assert _row, '厂商表格里找不到探针厂商那一行'
+_cells = [c.strip() for c in _row.split('│') if c.strip()]
+_empty = [i for i, c in enumerate(_cells) if c in ('-', '—', '')]
+# 首列是厂商名，末列是验证等级；中间不能出现整列空缺
+assert len(_empty) <= 1, (
+    f'厂商行里有多处空缺 {_empty}，单元格: {_cells}——'
+    f'八成是字段名读错了。一列全是占位符的表比没有这张表更糟')
+assert 'verified' in _row, f'验证等级列没显示出真实值: {_row}'
+assert 'k1' in _row, f'型号（kinds）没显示: {_row}'
+""",
+    ),
+    Gate(
         id='cli-never-silent',
         desc='CLI 不得以退出 0 + 空 stdout 结束——沉默让使用者无法区分失败与无数据',
         on_fail='block',

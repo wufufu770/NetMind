@@ -107,7 +107,15 @@ netmind audit --mode real     # 连接真实设备（需 NETMIND_ENABLE_REAL_COM
 netmind diagnose examples/clab-broken.yml               # 拓扑结构检查 → markdown 报告
 netmind diagnose topo.yml --live --host r1=172.20.20.2  # + napalm 接口采集
 netmind diagnose topo.yml --llm                         # + LLM 根因分析（结果缓存）
+
+netmind vendors                # 厂商能力矩阵（verified / declared / blocked 逐行标出）
+netmind readiness              # 配置是否齐全、缺什么、规则/Agent/工具各多少
+netmind notifications          # 告警与关键事件
+netmind status                 # 系统健康、驱动、模型、遥测来源、认证档位
 ```
+
+`netmind vendors` 的**验证等级**列值得单独看一眼：只有 `verified` 的那家在真实
+设备上跑通过采集，`declared` 是映射与依赖齐备但未在真机验过，`blocked` 是缺插件。
 
 ## Configuration
 
