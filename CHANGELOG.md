@@ -3,6 +3,20 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- `scripts/verify_linkdown.py`：在真实设备上验 `link_down` 处置路径，两个场景都取
+  **设备侧独立证据**（读路由表 + 设备自己 ping），不采信 NetMind 自报。
+  场景 A 备份路由指向真实网关 → 丢包 1.0→0.0、延迟 999.0→0.209ms，设备路由表出现
+  该条、设备侧 `0% packet loss`；场景 B 指向黑洞网关 → 未改善（丢包 0.0→1.0，
+  比处置前更糟）→ 触发回滚 → 设备路由表确认该条已撤下、`success=False`。
+  诚实表里「link_down 路径未在设备实跑」那条 ⚠️ 据此收口
+
+### Fixed
+- **`scripts/lab.sh` 的 sudoers 规则写进了 `/etc/sudoers.d/`，而那个目录从未被读取**。
+  该镜像的 sudo 编译时未启用 drop-in，于是 `sudo -n` 一直要密码——而
+  `NETMIND_SUDO` 依赖免密提权。改为追加到 `/etc/sudoers` 本体并用 `visudo -c`
+  校验（语法写错会让容器里 sudo 整体不可用），起台时打印 `SudoersOK`
+
 ### Fixed
 - **面板上「丢包率 0.00%」而延迟是 `--`**。真浏览器验证时抓到的：后端返回
   `packet_loss: null`（没采到数据），前端 `Number(metrics.packet_loss || 0)`
@@ -354,7 +368,8 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 **实验台与脚本**：`scripts/lab.sh`（起实验台）、`scripts/lab.sh measure`
 （采原始数据，含 FRR 守护进程状态与路由表）、`scripts/load_test.py`、
-`scripts/data_ops.py`、`scripts/verify_heal.py`、`scripts/ci_audit.py`、
+`scripts/data_ops.py`、`scripts/verify_heal.py`、`scripts/verify_linkdown.py`、
+`scripts/ci_audit.py`、
 `scripts/copy_lint.py`
 
 **真实数据 fixture**（`tests/fixtures/lab/`）：`ping-healthy.txt`、

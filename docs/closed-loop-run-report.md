@@ -142,6 +142,63 @@ NETMIND_PROBE_TARGET=192.168.1.30 .venv/bin/python scripts/verify_heal.py --scen
 
 
 
+## link_down 处置路径（`ip route add`）
+
+`congestion` 与 `anomaly_traffic` 验过之后，第三条处置路径此前只在测试里跑过——
+「已生成命令、过安全门、能过白名单」，**从没在真设备上跑通整条**。只在模拟器上
+验过的东西证明不了它能落到设备上。
+
+```bash
+scripts/lab.sh up
+NETMIND_DRIVER=ssh NETMIND_SSH_HOST=192.168.1.11 NETMIND_SSH_PORT=2222 \
+NETMIND_SSH_USERNAME=netmind NETMIND_SSH_PASSWORD=netmind123 \
+NETMIND_ENABLE_REAL_COMMANDS=true NETMIND_SUDO=true \
+NETMIND_PROBE_TARGET=192.168.3.1 NETMIND_HEAL_IFACE=eth0 \
+NETMIND_HEAL_BACKUP_ROUTE="192.168.3.0/24 via 192.168.1.2" \
+.venv/bin/python scripts/verify_linkdown.py
+```
+
+实验台天然就是这个场景：client2 到远端段 `192.168.3.1` **100% 丢包**，因为压根
+没有到该网段的路由（默认网关 192.168.1.1 在实验台里并不存在）。
+
+### 场景 A：备份路由指向真实网关 → 修好
+
+| 步骤 | 观测 | 来源 |
+|---|---|---|
+| 起点探测 | 丢包 1.0、延迟 999.0ms、`source=real` | 主链路真探测 |
+| 诊断 | `link_down`、置信度 0.657（由证据推导） | `diagnose()` |
+| 下发 | `ip route add 192.168.3.0/24 via 192.168.1.2 dev eth0`，`mode=real`、`applied=True` | SSH 真下发 |
+| 重测 | 丢包 1.0 → 0.0、延迟 999.0 → 0.209ms | 主链路真探测 |
+| 设备侧路由表 | 出现 `192.168.3.0/24 via 192.168.1.2 dev eth0` | 设备读回 |
+| 设备侧连通性 | `3 packets transmitted, 3 packets received, 0% packet loss`，0.156ms | 设备读回 |
+
+`success=True verified=True`。后三行是不采信 NetMind 自报的独立证据。
+
+### 场景 B：备份路由指向黑洞 → 没修好 → 真回滚
+
+备份路由改指 `192.168.1.99`（该地址无人应答）。路由加得上、过得了安全门，但不通。
+
+| 步骤 | 观测 |
+|---|---|
+| 下发 | `ip route add 192.168.3.0/24 via 192.168.1.99 dev eth0`，`applied=True` |
+| 重测 | 丢包 0.0 → 1.0（**比处置前更糟**：接着场景 A 跑，起点本已修好） |
+| 回滚 | `capability=inverse` `attempted=True` `rolled_back=True` `complete=True` |
+| 设备侧路由表 | 黑洞路由**已不在表里**，只剩 default 与直连——真撤下了 |
+| `success` | `False`（没修好就不报成功） |
+
+这个场景比「没变化」更强：回滚不只该在原地踏步时触发，也该在**处置主动造成退化**时触发。
+
+它同时验了轮 22 补的路由归属登记——`ip route del` 属危险操作，安全门只放行
+「本系统 `ip route add` 下去、规格完全一致」的路由。没有那次登记，回滚会被安全门
+自己拦下，而这种废回滚只在真要撤销的那一刻才暴露。
+
+### 顺带修掉的一个实验台 bug
+
+`scripts/lab.sh` 原先把 sudoers 规则写进 `/etc/sudoers.d/netmind`。实测该镜像的
+sudo 编译时未启用 drop-in 目录，那个文件**从未被读取**——`sudo -n` 报要密码，
+而 `NetMind 的 NETMIND_SUDO 依赖免密提权。现改为追加到 `/etc/sudoers` 本体并用
+`visudo -c` 校验（语法写错会让容器里 sudo 整体不可用），起台时打印 `SudoersOK`。
+
 ## S3 是本报告最重要的一行
 
 S3 注入的是和 S1 完全相同的真故障，处置动作却是空操作。结果：
@@ -175,11 +232,15 @@ False；重测没改善则触发回滚并如实记录；探针挂了就记异常
   直连与静态路由，**没有** OSPF/BGP 等动态协议的邻居与收敛数据。
 - **「处置」= 清除实验台注入的故障**，不是「自动修复真实网络故障」。它证明的是闭环
   机制本身不撒谎，**不**证明 NetMind 能修好真实网络。
-- **处置路径验过两条，剩下两条没验**：`congestion`（清整形）与 `anomaly_traffic`
-  （加限速）已在设备上实跑，含各自的回滚行为。`link_down`（下发 `ip route add`）
-  的方案生成、安全门与路由归属登记有测试覆盖，但**没有**在设备上实跑过。
-  `config_error` 刻意不给自动处置——`ovs-ofctl del-flows` 属危险操作，只放行带
-  NetMind cookie 的流表，拿不到归属证明就不该自动动手。
+- **三条处置路径已验，缺的是方向而不是路径**：`congestion`（清整形）与 `link_down`
+  （下发 `ip route add`）验过「修好了」与「没修好→回滚」两个方向；
+  `anomaly_traffic`（加限速）只验过回滚方向——它的「修好了」方向需要先造出
+  异常流量再证明限速有效，本轮未做。`config_error` 刻意不给自动处置：
+  `ovs-ofctl del-flows` 属危险操作，只放行带 NetMind cookie 的流表，
+  拿不到归属证明就不该自动动手。
+- **`link_down` 的备份路由是本脚本指定的固定值**（经 r1 的 `192.168.1.2`）。
+  真实网络里选哪条备用路径需要拓扑与现网可达性判断，本项目**没有**这个能力——
+  处置目标必须由运维通过 `NETMIND_HEAL_BACKUP_ROUTE` 显式给出，工具不猜。
 - **回滚只在单设备单接口上验过，且只有可逆处置能验**：逆操作要等量可撤销才谈得上
   回滚，所以 `congestion` 的回滚**结构性不可用**（删了原有整形但未记录参数）。
   **不能**据此声称「任何处置都能自动撤销」。
@@ -195,7 +256,7 @@ False；重测没改善则触发回滚并如实记录；探针挂了就记异常
 |---|---|
 | Lab data collection | S0–S3 全部来自活实验台实测 |
 | Post-apply verification | ✅ 已实现——S1/S2 的 `verified=True` 即重测完成 |
-| Healing action | ✅ Real（机制层）—— 处置是真命令，过安全门后经 SSH 真下发并重测；`congestion` 与 `anomaly_traffic` 路径在真实设备端到端跑通，见上两节。⚠️ `link_down` 路径未在设备实跑，真实生产故障未验证 |
+| Healing action | ✅ Real（机制层）—— 处置是真命令，过安全门后经 SSH 真下发并重测；`congestion`、`anomaly_traffic`、`link_down` 三条路径均已在真实设备实跑，见上三节。⚠️ `anomaly_traffic` 只验过回滚方向；⚠️ 真实生产故障未验证 |
 | Post-verify rollback | ✅ Real（机制层）—— 下发成功但重测无改善时真调 `rollback()` 撤销，`anomaly_traffic` 路径已在设备上读回确认限速被撤掉。⚠️ `congestion` 结构性不可回滚，如实报「无法自动回滚」 |
 | Diagnosis thresholds | ⚠️ 阈值为单一拓扑标定；带宽判定需基线，无基线时跳过 |
 | Routing state | ✅ Real — zebra 真实路由表（仅直连+静态，无动态协议） |

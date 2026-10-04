@@ -30,7 +30,7 @@ Intent-Based Networking fixes the *interface*; agentic AI closes the *loop*: par
 | Diagnosis confidence | ✅ Derived — every diagnosis, **including `normal`**, derives confidence from margin-to-threshold, sample count, and whether the data is real or simulated; with no samples at all the verdict is `normal` at confidence `0.0` with a stated reason; ⚠️ previously the `normal` branch returned a bare `Diagnosis(type='normal')` and took the schema default `0.9`, so 1 sample and 10 samples, a reading at 45 ms and one at 1 ms, and simulated vs. real data all scored identically |
 | Diagnosis thresholds | ⚠️ Calibrated on one lab topology; `throughput` judgement needs a baseline and is skipped when absent |
 | Post-apply verification | ✅ Real — `diagnose/closed_loop.py`; `success` 由实测前后对比推出，未重测即 `verified=False`（跑测见 `docs/closed-loop-run-report.md`） |
-| Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 路径已在真实设备端到端跑通（150.277ms→0.203ms，设备侧 qdisc `netem`→`noqueue` 读回确认）；⚠️ **auto-remediation is off unless `NETMIND_HEAL_IFACE` is set** — the interface is never guessed, since guessing wrong targets the wrong port; ⚠️ `link_down` path not yet exercised on a device; real production faults unverified |
+| Healing action | ✅ Real — 处置是真命令而非描述串：过安全门 → TransactionManager 下发 → 重测对比（`core/remediation.py`）；`congestion` 与 `link_down` **两条路径均已在真实设备端到端跑通**（`scripts/verify_heal.py`、`scripts/verify_linkdown.py`），设备侧均以 `qdisc` / 路由表读回作独立佐证；⚠️ `anomaly_traffic` 仅验过回滚路径（设备侧确认限速被撤销），未验「修好了」的方向；⚠️ **auto-remediation is off unless `NETMIND_HEAL_IFACE` is set** — the interface is never guessed, since guessing wrong targets the wrong port; real production faults unverified |
 | Healing safety rails | ✅ Covered — attempts are counted per (diagnosis, interface) and persisted; reaching the cap (default 3, `NETMIND_HEAL_MAX_ATTEMPTS`) stops auto-remediation and hands off to a human; a success clears the count, and a dry run never consumes budget since the device was untouched |
 | Offline rule engine + mock model | ✅ Real |
 | Real LLM calls | ✅ Real (API key required) |
@@ -140,8 +140,15 @@ CI runs the suite on Python 3.10–3.12 plus a frontend build.
 ## Roadmap
 
 1. ~~Phase 1 — Diagnose MVP~~ ✅
-2. Phase 2 — Guardrailed healing: config-diff proposals, pre/post-apply verification, rollback
-3. Phase 3 — MCP server over JSON-RPC stdio
+2. ~~Phase 2 — Guardrailed healing~~ ✅ config-diff 提案（`core/config_diff.py`，8 测试）、
+   pre/post-apply 验证（`diagnose/closed_loop.py`，未重测即 `verified=False`）、
+   回滚（`TransactionManager.rollback()`，10 测试 + 真机读回验证，见
+   `docs/closed-loop-run-report.md`）
+3. Phase 3 — MCP server over JSON-RPC stdio · **未开始**，backlog `B5-mcp`
+
+已交付能力的状态与限制以上面那张诚实表为准，那张表是契约；本节只标阶段，
+不重复能力清单。仍在做的主要是环境相关的验证（多厂商真机、link_down 路径实跑），
+详见 `docs/closed-loop-run-report.md` 里「不能支撑的主张」一节。
 
 ## License
 

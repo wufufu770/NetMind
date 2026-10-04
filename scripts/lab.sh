@@ -65,7 +65,15 @@ up() {
   docker exec nm-client2 sh -c 'apk add --no-cache iproute2 >/dev/null 2>&1 || true'
   # 监控账号用 NOPASSWD sudo 提权。生产里也应如此：让工具去提示输密码既不可用
   # 也不安全。NetMind 的 NETMIND_SUDO 依赖这个前提。
-  docker exec nm-client2 sh -c "echo 'netmind ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/netmind && chmod 440 /etc/sudoers.d/netmind" 2>/dev/null || true
+  #
+  # 写进 /etc/sudoers 本体而不是 /etc/sudoers.d/：这个镜像的 sudo 编译时
+  # 没有启用 drop-in 目录（实测写进去的文件从未被读取，sudo 报「password required」）。
+  # 所以这里追加到本体，并用 visudo 校验——语法写错会让整个容器里的 sudo 不可用。
+  docker exec nm-client2 sh -c '
+    grep -q "^netmind ALL=(ALL) NOPASSWD: ALL$" /etc/sudoers 2>/dev/null ||
+      printf "netmind ALL=(ALL) NOPASSWD: ALL\n" >> /etc/sudoers
+    visudo -c -f /etc/sudoers >/dev/null 2>&1 && echo SudoersOK || echo SudoersBROKEN
+  ' 2>/dev/null || true
   sleep 4   # 等 FRR 的 watchfrr 把 zebra 拉起来
 
   # 被监控主机：真实 SSH 端点，主链路的探测从这里发起。
