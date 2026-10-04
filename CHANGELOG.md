@@ -187,6 +187,13 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **干跑报告从「## 3.」直接跳到「## 6.」**。第 2–5 节是条件渲染而编号写死 1–6，
+  于是不下发、不自愈时报告少了第 4、5 节——读者看到编号空档，**分不清是这步
+  没做还是报告丢了内容**，而合规场景里两者都会被读成「出问题了」。
+  现六节恒在，没做的**明说为什么没做**（未下发到设备 / 未触发自愈 / 未产出策略集 /
+  未做校验）。补 3 个用例 + 门禁 `report-keeps-every-section`（反例：把 4/5 改回
+  条件渲染 → 抓到 2 条失败）
+
 - **PDF 导出会静默丢掉全部汉字，且不报错**。两条 PDF 路径（`report_pdf` 与
   `REPORT_RENDERER.pdf_bytes`）各自手写了一份最小 PDF，用
   `encode('latin-1', 'ignore')` 编码；而报告正文是中文，base-14 的 Helvetica

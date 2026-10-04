@@ -65,6 +65,43 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='report-keeps-every-section',
+        desc='报告六节恒在；条件渲染的节缺做时必须明说，不得留下编号空档',
+        on_fail='block',
+        check=r"""
+# 合规报告里，节编号的连续性是承诺的一部分。此前第 2–5 节是条件渲染而编号
+# 写死 1–6，于是干跑（不下发、不自愈）时报告变成：
+#     ## 1. 意图摘要 / ## 2. 策略集 / ## 3. 验证结果 / ## 6. Agent 执行链路
+# 读者看到空档，**分不清是这步没做还是报告丢了内容**——而合规场景里
+# 两者都会被读成「出问题了」。空节必须明说为什么空。
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+try:
+    from app.core.report import REPORTER
+    from app.schemas import CommandResult, DeployResult, Execution
+
+    _md = REPORTER.markdown(Execution(execution_id='e-1', status='success'))
+    _heads = [l for l in _md.splitlines() if l.startswith('## ')]
+    assert len(_heads) == 6, f'只有 {len(_heads)} 节，编号有空档: {_heads}'
+    for _n in ('1', '2', '3', '4', '5', '6'):
+        assert any(h.startswith(f'## {_n}.') for h in _heads), f'缺第 {_n} 节'
+    for _why in ('未下发到设备', '未触发自愈', '未产出策略集', '未做校验'):
+        assert _why in _md, f'空节没有说明为什么（{_why}）——编号在但内容空着等于没写'
+
+    # 有数据时不得还说「没做」
+    _ex = Execution(execution_id='e-2', status='success')
+    _ex.deploy = DeployResult(execution_id='e-2', success=True, rolled_back=False,
+                              executed=[CommandResult(command='tc qdisc del dev eth0 root',
+                                                      success=True, output='')],
+                              mode='dry-run')
+    _md2 = REPORTER.markdown(_ex)
+    assert '未下发到设备' not in _md2, '明明有 deploy 记录，报告却说没下发'
+    assert 'tc qdisc del dev eth0 root' in _md2, '真实执行命令没进报告'
+finally:
+    pass
+""",
+    ),
+    Gate(
         id='pdf-export-does-not-drop-chinese',
         desc='PDF 导出不得静默丢弃汉字；缺中文字体时必须明确报错而不是返回残缺文件',
         on_fail='block',
@@ -1441,6 +1478,7 @@ for k in _keys:
     os.environ.pop(k, None)
 from app.store import STORE  # noqa: E402
 _saved_telemetry = list(STORE.telemetry)
+_saved_executions = dict(STORE.executions)
 _saved_attempts = {k: dict(v) for k, v in STORE.heal_attempts.items()}
 
 from app.core import heal_guard                    # noqa: E402
@@ -1496,6 +1534,7 @@ try:
 finally:
     # 这条门禁会真跑两遍闭环，而闭环的 TelemetryAgent 会往 STORE.telemetry 里
     # 追加采样。不还原的话，位置在它之后的门禁读到的是被这次闭环改过的遥测。
+    STORE.executions.clear(); STORE.executions.update(_saved_executions)
     STORE.telemetry.clear(); STORE.telemetry.extend(_saved_telemetry)
     STORE.heal_attempts.clear(); STORE.heal_attempts.update(_saved_attempts)
     for k, v in _saved.items():

@@ -171,3 +171,53 @@ def test_rich_pdf_uses_the_same_exporter():
     assert 'pdf_bytes' not in (Path(__file__).resolve().parent.parent / 'app' /
                                'core' / 'report_renderer.py').read_text(encoding='utf-8'), \
         'report_renderer 里那份手写 PDF 还在——它就是丢汉字的那个'
+
+
+# ---------- 报告结构：每节都在，缺做的明说 ----------
+
+def test_all_report_sections_are_present_even_when_nothing_happened():
+    """干跑时报告原本从「## 3.」直接跳到「## 6.」。
+
+    节是条件渲染而编号写死 1–6，于是干跑（不下发、不自愈）就少两节——
+    读者看到空档，分不清是这步没做还是**报告丢了内容**。
+    合规报告尤其不能有这种歧义：空档会被读成「出问题了」。
+    """
+    from app.core.report import REPORTER
+    from app.schemas import Execution
+
+    md = REPORTER.markdown(Execution(execution_id='e-1', status='success'))
+    heads = [l for l in md.splitlines() if l.startswith('## ')]
+    assert len(heads) == 6, f'只有 {len(heads)} 节: {heads}'
+    assert [h.split('.')[0] for h in heads] == ['## 1', '## 2', '## 3',
+                                                  '## 4', '## 5', '## 6'], \
+        f'节编号不连续: {heads}'
+
+
+def test_absent_sections_say_why_they_are_empty():
+    from app.core.report import REPORTER
+    from app.schemas import Execution
+
+    md = REPORTER.markdown(Execution(execution_id='e-1', status='success'))
+    assert '未下发到设备' in md
+    assert '未触发自愈' in md
+    assert '未产出策略集' in md
+    assert '未做校验' in md
+    # 不得出现「只有标题、下面什么都没有」的节
+    body = md.split('## 4.')[1].split('## 5.')[0]
+    assert [l for l in body.splitlines() if l.strip()], '第 4 节是空的'
+
+
+def test_sections_keep_real_content_when_data_exists():
+    """「缺做的明说」不能变成「有数据也说明说没做」。"""
+    from app.core.report import REPORTER
+    from app.schemas import CommandResult, DeployResult, Execution
+
+    ex = Execution(execution_id='e-2', status='success')
+    ex.deploy = DeployResult(execution_id='e-2', success=True, rolled_back=False,
+                             executed=[CommandResult(command='tc qdisc del dev eth0 root',
+                                                    success=True, output='')],
+                             mode='dry-run')
+    md = REPORTER.markdown(ex)
+    assert '未下发到设备' not in md, '明明有 deploy 记录却说没下发'
+    assert '成功：True' in md
+    assert 'tc qdisc del dev eth0 root' in md
