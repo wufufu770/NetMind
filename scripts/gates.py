@@ -208,6 +208,23 @@ assert 'X-NetMind-Admin' in client_test, \
 assert re.search(r'没有默认凭据|凭空', client_test), \
     '未断言「取不到凭据时不兜底」——那正是第二次打错的地方（写死的默认凭据）'
 
+# 3b) 图表不得把缺测画成 0：遥测字段改成可缺之后，Sparkline 的
+#     `Number(x[field] || 0)` 会把 null 变成一条真实的「0ms」读数。
+#     缺测的点不画，且非数值不得产出 NaN（一个坏行会让整条 polyline 不渲染）。
+assert 'charts.js' in '\n'.join(x.name for x in lib.glob('*.js')), \
+    '缺 frontend/src/lib/charts.js——图表取点逻辑必须可被 node --test 覆盖'
+_ch_raw = (lib / 'charts.js').read_text(encoding='utf-8')
+# 先剥注释：模块头那段正是在解释旧写法为什么错，它含 `Number(x[field] || 0)`
+# 这个字符串，**写「这里曾经错过」也会让检查命中**（与 App.jsx 同一课）。
+_ch = re.sub(r'/\*.*?\*/', '', _ch_raw, flags=re.S)
+_ch = '\n'.join(l.split('//')[0] for l in _ch.splitlines())
+_seg = _ch.split('sparklinePoints')[1].split('export function')[0] if 'sparklinePoints' in _ch else ''
+assert '|| 0' not in _seg, \
+    'sparklinePoints 又用 || 0 把缺测顶替成 0——延迟图上会凭空一条「0ms」'
+_cht = (lib / 'charts.test.js').read_text(encoding='utf-8') if (lib / 'charts.test.js').exists() else ''
+for _must in ('缺测', 'NaN', '负值'):
+    assert _must in _cht, f'charts 的测试未覆盖「{_must}」'
+
 # 4) 抽出去的模块不得含 JSX（否则就又不能被 node --test 直接 import 了）
 for m in ('client.js', 'constants.js', 'api.js', 'auth.js', 'display.js'):
     p = lib / m

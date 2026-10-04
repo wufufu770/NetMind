@@ -4,6 +4,13 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- `frontend/src/lib/charts.js`：折线取点与列表关键词检索。Sparkline 此前
+  `Number(x[field] || 0)`——测不到的字段被当成 0，于是延迟图上会画出一条真实的
+  「0ms」读数（比缺测更坏，它看起来像个好消息）；遥测字段改成可缺之后这条路更是
+  直接被打开。另外 `Number('abc')` 是 NaN，NaN 进 `points` 属性会让整条 polyline
+  不渲染——**一个坏行毁掉整张图**，而 SVG 不报错、只是空着。
+  现取不到值就**不画那个点**、坐标夹进留白带、丢点数回报出来；关键词检索在两个
+  页面各写了一份，现统一。前端 78 → **92**
 - `frontend/src/lib/graph.js`：工作流图的「结构与可编辑文本」互转。解析时把
   不合法的行**收集进 `problems` 返回**，不再 `.filter(e => e.length === 2)`
   悄悄吞掉——用户打 `a -> b -> c` 此前那条边直接消失且无任何提示。箭头写反的
@@ -154,6 +161,12 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- 折线坐标的第一版把值域映射错了一个 band，y 算出 158 越出视口；clamp 区间也
+  设成 `[floor, height]`，把 12.4 与 11.8 两个不同的值压成同一个 y，图看起来
+  「没变化」——**clamp 是越界的安全网，不该毁掉带子内的有效数据**。两条都是补
+  测试时抓到的，现值域映射到 [14, 86] 带内、clamp 只兜真正越界
+- `filterByKeyword(rows)(keyword)` 的柯里化写法让调用点参数个数与声明对不上，
+  arity 检查只能靠特例放行——而「靠特例放行」正是检查失效的开始。改成直白两参
 - **`tests-are-reproducible` 门禁两次都在仓库根跑，漏掉了「换个 cwd 就挂」的测试**。
   CI 的 pytest 步骤是 `working-directory: backend` + `pytest -q`，而我本地从根
   目录跑 `pytest backend/tests`——**两个不是一回事**。本轮就有一个新测试用了

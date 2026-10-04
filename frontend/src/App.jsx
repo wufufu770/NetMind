@@ -48,6 +48,7 @@ import { fallbackModelPresets, fontChoices, issueCodeLabels, sampleIntents, stat
   from './lib/constants.js';
 import { graphToText, textToGraph } from './lib/graph.js';
 import { layoutNodes, positionOf, resolveEndpoints } from './lib/topology.js';
+import { filterByKeyword, sparklinePoints } from './lib/charts.js';
 import { confidenceText, deviceStateLabel, healthRing, healthScore, isReadonly, metricTone, metricValue, netStatusLabel, percentText, provenanceLabel, summaryCell, timeLabel, writeAction } from './lib/display.js';
 import './style.css';
 
@@ -614,7 +615,7 @@ function Agents({ setToast }) {
     }
   }, [selected?.name]);
 
-  const filtered = agents.filter((agent) => JSON.stringify(agent).toLowerCase().includes(query.toLowerCase()));
+  const filtered = filterByKeyword(agents, query);
   const lastExecution = normalizeList(executions).at(-1);
 
   const saveAgent = async () => {
@@ -1151,10 +1152,16 @@ function Telemetry({ setToast, authMode }) {
 }
 
 function Sparkline({ rows, field }) {
-  const values = rows.map((x) => Number(x[field] || 0));
-  const max = Math.max(1, ...values);
-  const points = values.map((v, i) => `${(i / Math.max(values.length - 1, 1)) * 100},${100 - (v / max) * 86}`).join(' ');
-  return <div className="sparkline"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points={points} /></svg></div>;
+  // 测不到的点不画，不补 0——延迟图上凭空一条「0ms」比缺测更坏。
+  // 丢点数回报出来，好让「图上少几个点」这件事可解释。
+  const { points, drawn, dropped } = sparklinePoints(rows, field);
+  return (
+    <div className="sparkline" title={dropped ? `有 ${dropped} 个采样未测到，未画入曲线` : undefined}>
+      {drawn > 0
+        ? <svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points={points} /></svg>
+        : <small className="muted">无可用采样</small>}
+    </div>
+  );
 }
 
 function Logs({ setToast, refreshKey }) {
@@ -1163,7 +1170,7 @@ function Logs({ setToast, refreshKey }) {
   const [keyword, setKeyword] = useState('');
   const path = `/api/logs?limit=120${source ? `&source=${encodeURIComponent(source)}` : ''}${level ? `&level=${encodeURIComponent(level)}` : ''}`;
   const { data, reload, error } = useApi(path, [], refreshKey);
-  const rows = normalizeList(data).filter((row) => JSON.stringify(row).toLowerCase().includes(keyword.toLowerCase()));
+  const rows = filterByKeyword(normalizeList(data), keyword);
   const sources = [...new Set(normalizeList(data).map((r) => r.source).filter(Boolean))];
 
   return (
