@@ -99,3 +99,53 @@ export function percentText(value, placeholder = '--') {
   if (!Number.isFinite(n)) return placeholder;
   return `${(n * 100).toFixed(2)}%`;
 }
+
+/** 设备状态标签。
+ *
+ * 原写法 `node.ip || node.status || '可用'`：一台既没有 IP 也没有状态的设备，
+ * 在界面上被标成「**可用**」。没有任何数据这么说——这是凭空的健康断言，
+ * 而恰恰是网络运维工具最不该编的一件事。同理 `row.source || 'system'`
+ * 会把「来源未标注」说成「来自 system」，直接抵消后端那套
+ * `source=real|simulated|lab` 的来源标注；`row.ts ? … : '刚刚'` 把
+ * 没有时间戳的记录说成「刚刚」。
+ */
+export function deviceStateLabel(node) {
+  if (!node) return '状态未知';
+  // 逐个判「有没有值」，而不是用 ?? —— 空字符串也是「没给」，
+  // ?? 只在 null/undefined 时回退，{ip:'', status:'degraded'} 会被误判成未知
+  for (const v of [node.ip, node.status]) {
+    if (v !== undefined && v !== null && v !== '') return String(v);
+  }
+  return '状态未知';
+}
+
+/** 遥测/日志的来源标签。缺来源就说缺，不替它编一个。 */
+export function provenanceLabel(row) {
+  const v = row?.source ?? row?.src;
+  return v === undefined || v === null || v === '' ? '来源未标注' : String(v);
+}
+
+// locale 标成可选：省略时用运行时默认。写成必填会既骗读者、
+// 又让调用点与声明的参数个数对不上（正是本文件那三处踩过的坑）。
+export function timeLabel(row, locale = undefined) {
+  const ts = row?.ts ?? row?.timestamp;
+  if (ts === undefined || ts === null || ts === '') return '时间未标注';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '时间未标注';
+  return d.toLocaleString(locale);
+}
+
+/** 侧栏「全网状态」标签。**三态，不是两态。**
+ *
+ * 原写法 `health?.alerts ? \`${health.alerts} 告警\` : '正常'`：`health` 初始
+ * 是 `null`，于是**任何检查都还没跑过**时，侧栏就显示绿色对勾 + 「正常」。
+ * 那是整块界面上最要紧的一句谎报——「全网正常」。
+ * 紧挨着的模型那行本来就是三态（离线/在线/检查），这里补齐成一致。
+ */
+export function netStatusLabel(health) {
+  if (!health) return '未检查';
+  const alerts = health.alerts;
+  if (typeof alerts === 'number' && alerts > 0) return `${alerts} 告警`;
+  if (alerts === 0) return '正常';
+  return '未检查';      // 拿到了响应但没有可判的告警数——不当成「正常」
+}

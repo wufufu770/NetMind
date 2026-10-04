@@ -194,6 +194,36 @@ for name, (mod, n_req, n_max) in lib_defs.items():
 assert not drift, (
     'App.jsx 的调用点与 lib/ 里的声明对不上——这类漂移 **build 与模块测试都是绿的**，'
     '因为它们都不碰调用点，只在浏览器里炸：\n  - ' + '\n  - '.join(drift))
+
+# 7) UI 不得对「没数据」编出关于设备或数据可信度的断言。
+#    实测抓到四处：① `node.ip || node.status || '可用'`——没 IP 也没状态的设备
+#    被标成「可用」② `row.source || 'system'`——来源未标注被说成来自 system，
+#    直接抵消后端那套 source=real|simulated|lab 的标注
+#    ③ `row.ts ? … : '刚刚'`——没有时间戳的记录被说成「刚刚」
+#    ④ `health?.alerts ? … : '正常'`——**任何检查都还没跑过**时侧栏就显示
+#    绿色对勾 +「全网正常」。四处现都由 display.js 里的被测函数出值。
+#
+#    分层是刻意的：编造落在 App.jsx 由本门禁抓；挪进 lib/display.js 由
+#    display.labels.test.js 抓（实测把 provenanceLabel 改回 'system' →
+#    2 条测试失败）。单靠门禁不够，单靠测试也不够——两边各管一段。
+_jsx_code = '\n'.join(l.split('//')[0] for l in app_jsx.splitlines())
+for banned, why in [
+    (r"\|\|\s*'可用'", '设备没有 IP 也没有状态就说「可用」'),
+    # 只匹配「来源」语境：字体名那里的 || 'system' 是 CSS system font，不是来源声明
+    (r"(?:\bsource|\bsrc|\.source|\.src)\b[^\n]{0,40}\|\|\s*'system'",
+     '来源未标注却说来自 system'),
+    (r":\s*'刚刚'", '没有时间戳的记录说成「刚刚」'),
+    (r'health\?\.alerts\s*\?', '「全网状态」用两态：未检查与正常混为一谈'),
+]:
+    assert not re.search(banned, _jsx_code), f'App.jsx 里还有编造标签：{why}'
+
+for _fn in ('deviceStateLabel', 'provenanceLabel', 'timeLabel', 'netStatusLabel'):
+    assert _fn in app_jsx, f'App.jsx 未使用被测函数 {_fn}()——编造标签会从别处长回来'
+    assert _fn in (lib / 'display.js').read_text(encoding='utf-8'), f'lib/display.js 缺 {_fn}'
+_dtests = '\n'.join(p.read_text(encoding='utf-8') for p in lib.glob('display*.test.js'))
+for _must in ('可用', 'system', '刚刚', '未检查'):
+    assert _must in _dtests, \
+        f'display 的测试未覆盖「{_must}」——这几处编造标签正是从缺测试的地方长出来的'
 """,
     ),
     Gate(

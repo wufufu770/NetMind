@@ -154,6 +154,23 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **UI 对「没数据」编出关于设备与数据可信度的断言，四处**：
+  ① `node.ip || node.status || '可用'` —— 既没有 IP 也没有状态的设备被标成
+     「**可用**」，而没有任何数据这么说
+  ② `row.source || 'system'` —— 遥测来源未标注却被说成来自 system，
+     直接抵消后端那套 `source=real|simulated|lab` 的来源标注
+  ③ `row.ts ? … : '刚刚'` —— 没有时间戳的记录被说成「刚刚」
+  ④ `health?.alerts ? … : '正常'` —— **任何检查都还没跑过**时（`health` 初始
+     为 `null`），侧栏就显示绿色对勾 +「全网正常」。这可能是整块界面上最要紧的
+     一句谎报；紧挨着的模型那行本来就是三态，这里补齐成一致，未知态改用中性色
+  四处现由 `lib/display.js` 的 `deviceStateLabel` / `provenanceLabel` /
+  `timeLabel` / `netStatusLabel` 出值，补 10 个用例，前端 68 → **78**。
+  门禁与测试分层守：编造落在 `App.jsx` 由 `frontend-request-layer-is-tested`
+  抓，挪进 `lib/display.js` 由 `display.labels.test.js` 抓（实测两条失败）。
+  单靠门禁不够、单靠测试也不够，两边各管一段
+- `timeLabel(row, locale)` 声明成两个必填、实际只传一个——行为没错但**声明在
+  骗人**。改为可选参数
+
 - **压测门禁 `load-test-no-loss` 偶发失败（实测 5 次里约 1 次）**。症状是
   「残留临时文件: 1」，而数据文件完好。查下来是**断言与写入竞争**，不是真泄漏：
   `save()` 只在构建 payload 时持锁，`mkstemp → write → fsync → replace` 这段在

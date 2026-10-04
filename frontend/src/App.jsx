@@ -48,7 +48,7 @@ import { fallbackModelPresets, fontChoices, issueCodeLabels, sampleIntents, stat
   from './lib/constants.js';
 import { graphToText, textToGraph } from './lib/graph.js';
 import { layoutNodes, positionOf, resolveEndpoints } from './lib/topology.js';
-import { confidenceText, healthRing, healthScore, isReadonly, metricTone, metricValue, percentText, summaryCell, writeAction } from './lib/display.js';
+import { confidenceText, deviceStateLabel, healthRing, healthScore, isReadonly, metricTone, metricValue, netStatusLabel, percentText, provenanceLabel, summaryCell, timeLabel, writeAction } from './lib/display.js';
 import './style.css';
 
 // 同源优先：没有 CORS、没有预检、凭据不跨域。构建期变量只作为开发时的覆盖手段，
@@ -68,6 +68,11 @@ const pageDefs = [
 
 // 数据与请求层已抽到 lib/（可被 node --test 直接 import ——
 // 此前它们连同认证契约一起困在带 JSX 的入口文件里，一行测试都写不了）
+function netStatusTone(health) {
+  const label = netStatusLabel(health);
+  return label === '正常' ? 'ok' : label === '未检查' ? 'unknown' : 'warn';
+}
+
 function Shell() {
   const [page, setPage] = useState('dashboard');
   const [toast, setToast] = useState(null);
@@ -138,9 +143,13 @@ function Shell() {
         </nav>
         <div className="sidebar-panel status-panel">
           <button type="button" className="status-line" onClick={runHealth}>
-            <CheckCircle2 size={15} className={health?.alerts ? 'warn-text' : 'ok-text'} />
+            {/* 没跑过检查时不能显示绿色对勾 + 「正常」——那是凭空断言全网健康。
+                未知态用中性色，别让「没查过」看起来像「查过了且没问题」。 */}
+            <CheckCircle2 size={15} className={{
+              ok: 'ok-text', warn: 'warn-text', unknown: 'muted',
+            }[netStatusTone(health)]} />
             <span>全网状态</span>
-            <b>{health?.alerts ? `${health.alerts} 告警` : '正常'}</b>
+            <b>{netStatusLabel(health)}</b>
           </button>
           <button type="button" className="status-line" onClick={runModelCheck}>
             <Sparkles size={15} className={modelHealth?.llm_available === false ? 'warn-text' : 'ok-text'} />
@@ -352,7 +361,7 @@ function TopologyMap({ topology }) {
             <b>{compactLabel(node.label || id, 7)}</b>
             <span className="topo-tooltip">
               <strong>{id}</strong>
-              <small>{node.role || node.type || 'node'} · {node.ip || node.status || '可用'}</small>
+              <small>{node.role || node.type || 'node'} · {deviceStateLabel(node)}</small>
             </span>
           </button>
         );
@@ -369,9 +378,9 @@ function Timeline({ rows }) {
         <div key={`${row.ts}-${index}`} className={`timeline-item ${row.level || 'info'}`}>
           <span className="dot" />
           <div>
-            <b>{row.source || 'system'}</b>
+            <b>{provenanceLabel(row)}</b>
             <p>{row.message || JSON.stringify(row)}</p>
-            <small>{row.ts ? new Date(row.ts).toLocaleString() : '刚刚'}</small>
+            <small>{timeLabel(row)}</small>
           </div>
         </div>
       ))}
@@ -1191,7 +1200,7 @@ function LogRow({ row, keyword }) {
   return (
     <div className={`log-row ${row.level || 'info'}`}>
       <span className="log-level">{row.level || 'info'}</span>
-      <span className="log-meta"><em>{row.ts ? new Date(row.ts).toLocaleTimeString() : '--'}</em><b>{row.source || 'system'}</b></span>
+      <span className="log-meta"><em>{timeLabel(row).replace(/ .*/, '')}</em><b>{provenanceLabel(row)}</b></span>
       <p>{highlight(msg)}</p>
     </div>
   );
