@@ -4,7 +4,7 @@
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 35,
   "phase": "plan",
-  "updated": "2026-10-04T18:01:42+08:00",
+  "updated": "2026-10-04T21:44:44+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -495,10 +495,10 @@
     }
   ],
   "current_round": {
-    "id": "C7-rbac-rate-limit",
-    "title": "拍板不做 per-device RBAC —— 框架错了，真实缺口是「空转的凭据接口」",
-    "why": "用户授权我拍板下一项。核实 C7 的前提时发现：一台 NetMind 实例只连NETMIND_SSH_HOST 那一台设备，STORE.credentials 零消费方，「按设备授权」这根轴根本不存在——诚实表那句措辞本身有误导。",
-    "deliverable": "① 改了方向而不是照做。核实前提：SSHDriver 目标是单个 NETMIND_SSH_HOST，PROBE_TARGET / HEAL_IFACE / HEAL_BACKUP_ROUTE 全是单设备语义；全仓搜 STORE.credentials 消费方为零（唯一引用是持久化 dump），驱动只读 NETMIND_SSH_* 环境变量。**没有第二台设备可授权**，按端点细分在单人/小团队自托管单设备下也是假想需求。要做设备群纳管是另一个产品（牵动凭据模型、执行目标选择、按设备授权）。② 真正查出来的缺口：/api/config/credentials 的条目带 host/port/username/secret_ref，读起来就是「凭这条去连设备」，却没有任何代码消费它。运维 POST 一条生产凭据、看到它被存下来、理所当然以为会生效——**安全相关接口上的静默空转是有害的**。未删接口（破坏性变更，且留档合理），改为每行自述 used_for_connection:false 并指向真正生效的环境变量。③ 写明部署模型：DEPLOY.md 新增第 7 节「一台实例 = 一台设备」，说明要管设备群就起多实例（store 与 token 各自独立）——这是刻意边界，不是能力缺失。后续章节重新编号 8→11，已核对无失效交叉引用。④ 门禁 no-inert-credential-surface：要求接口自述不可用于连接，并探测 STORE.credentials 是否出现消费方——真出现了就要求重新评估本门禁与诚实表措辞，不让两处说法漂移。两种反例均已注入证伪：① 去掉自述字段 → 抓到；② 让 telemetry.py 真的去读 credentials → 抓到。⑤ C7 按「错框架」关闭而非「没做」，理由写进 backlog。过程中门禁 state-based-on-is-honest 报出 based_on 落后 5 个 commit，**这条门禁本身是对的**——改了状态没提交就是过期快照。commit 后用 loop.py round 刷新；它第一次没落盘是因为空轮守卫（deliverable 为空则拒绝写入），补上交付描述后才写入。后端 275 测试、40 条门禁、去 AI 味门 0 命中。"
+    "id": "no-sentinel-measurements",
+    "title": "「没测到」曾被变成「测到 999ms、丢包 100%」——可能导致对健康设备下发处置",
+    "why": "UI 层那类「默认值冒充观测」扫完无新增，转去扫后端。找到的不是文案问题，而是遥测链路上的哨兵值：缺测被填成看起来很真实的数字，再被诊断当成实测。",
+    "deliverable": "① to_snapshot 对缺失的 rtt/loss 填 999.0 / 1.0：ping 丢包到算不出 RTT 时，快照变成「延迟 999ms、丢包 100%」，diagnose() 据此判 link_down——**把「没测到」变成了「测到断链」**，可能对一台其实正常的设备下发处置。TelemetrySnapshot 三个测量字段改为可缺，缺就是 None；diagnose() 的 float(x or 0.0) 一并改掉（那会把「没测到」变成「延迟 0、丢包 0」，也就是一份看起来完美健康的快照）。实测：80% 丢包 + RTT 缺失现在按丢包判 congestion 而非 link_down；两项都缺时返回 normal 置信度 0.0 并说明原因。② 告警文案「SLA threshold exceeded」——项目没有用户约定的 SLA（面板已如实声明「未定义 SLO 目标」），alert 的真实原因是跨过内置判据。改为直接给出实测值与被跨过的内置阈值。③ 过程中我改 `_normal_confidence` 时引入了二次缩放（归一化后又除一遍阈值），把 45ms 与 1ms 压成同一个置信度——被 test_normal_confidence_drops_when_reading_near_the_threshold 抓到，已修。④ 门禁 no-sentinel-measurements 锁死 ①②，两个反例均已证伪。⑤ **tests-are-reproducible 门禁两次都在仓库根跑，漏掉了「换个 cwd 就挂」的测试**——CI 的 pytest 步骤是 working-directory: backend + pytest -q，与我本地从根目录跑的不是一回事。本轮就有一个新测试用了相对路径，从根过、从 backend/ 挂，由 ci-steps-are-executable 抓出来。门禁已加第三次运行按 CI 的方式执行，并在「只在根目录通过」的反例上验证会失败。该测试本身已改为相对本文件定位——**只在某个 cwd 下通过的测试不是可复现的测试**。补 5 个用例，后端 280 → 285。"
   },
   "backlog": [
     {
@@ -1810,7 +1810,7 @@
     "deliverable": "",
     "planned_at": "2026-10-03T23:19:18+08:00"
   },
-  "based_on": "7312898",
+  "based_on": "fce8c6f",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
