@@ -4,7 +4,7 @@
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 35,
   "phase": "plan",
-  "updated": "2026-10-04T23:50:00+08:00",
+  "updated": "2026-10-05T02:20:18+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -495,10 +495,10 @@
     }
   ],
   "current_round": {
-    "id": "B5-mcp",
-    "title": "MCP stdio 服务 —— Roadmap Phase 3 交付",
-    "why": "CLI 覆盖缺口补完后，按之前定的顺序转 B5-mcp。",
-    "deliverable": "此前 core/mcp_protocol.py 只是进程内 HTTP 适配器（/api/mcp/*），并不是真正的 MCP 服务——外部客户端按 MCP 协议连不上。README 当时如实写的是「MCP-**style** tool registry」、Roadmap 写「Phase 3 未开始」，所以这是待交付项而非坏承诺。现 `netmind mcp` 提供 JSON-RPC 2.0 over stdio：initialize / tools/list / tools/call / ping，加 notifications/initialized（notification 不回响应，符合规范）。**协议层 handle() 是纯函数、IO 循环单独一层**——否则测一次协议要起一个子进程，测试成本会把人推向「只测 happy path」。18 个用例覆盖五类标准错误码、notification 无响应、坏 JSON 仍返回合规响应。两条不妥协并已反例证伪：① `tools/call` **默认 dry_run=true**——走 stdio 不比走 HTTP 更可信、更不受限，默认真执行等于给安全门开后门；② `tools/list` **只列已启用工具**——清单给了就会有人照着调，列出禁用工具等于把「点了没反应」的失败提前推给调用方。握手时在 `instructions` 里明说默认干跑，客户端不该靠猜。过程中修了两个自己写出来的错：相对导入层级（`..` 越过顶层包）、以及 `_tool_entries()` 直接用模块级单例导致 `handle(mcp=...)` 的注入在清单这一半没生效——协议层一半可测一半不可测。另修门禁自身：探针用 `chr(10).join([repr(l) ...])` 拼源码，`repr()` 之后每行变成裸字符串字面量，整段是一串什么都不做的表达式。这是连续第二次在同一个位置把门禁写坏（上次是嵌套三引号），已改成直接拼原始行，并记下「门禁必须实跑 + 反例注入才算写完」。后端 295 → 313 测试，门禁 45 → 46 条。"
+    "id": "rich-html-renderer",
+    "title": "rich.html 把每个空行渲染成空标题 —— 看起来像报告缺内容",
+    "why": "继续查报告族剩余出口（上一轮修完 PDF 与编号空档后）。",
+    "deliverable": "report_renderer.html 第一版是一行三元表达式：`<p>…</p>` if line and not line.startswith('#') else `<h2>…</h2>`。**空行也落进 else 分支**——markdown 每节之间都有空行，于是每个空行各变成一个空的 `<h2></h2>`，页面看起来像报告缺内容；同时 `#` 与 `##` 全被拍平成 `<h2>`，标题层级丢失。现按行首 `#` 个数决定级别、空行跳过，补 `lang=\"zh-CN\"`。补 4 个用例（无空节点、保留层级、尖括号转义、声明语言与字符集）+ 门禁 rich-html-has-no-empty-headings，两个反例均已证伪（空行不再跳过 → 抓到；层级拍平 → 抓到）。顺带确认普通 `.html` 端点是刻意的原始 markdown 视图（`<pre>` 包），不是缺陷，已在诚实表写明免得下次又去「修」它。"
   },
   "backlog": [
     {
@@ -1811,7 +1811,7 @@
     "deliverable": "",
     "planned_at": "2026-10-03T23:19:18+08:00"
   },
-  "based_on": "8a48038",
+  "based_on": "68f4676",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
