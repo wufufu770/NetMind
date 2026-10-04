@@ -28,20 +28,49 @@ REMEDIATIONS: dict[str, dict[str, str]] = {
         'intent': '切换到备用路径',
         'requires': 'iface+backup',
     },
-    'anomaly_traffic': {
-        'template': 'tc qdisc add dev {iface} root netem rate {rate}mbit',
-        'intent': '对异常流量限速',
-        'requires': 'iface+rate',
-    },
-    # config_error 刻意不提供自动处置：`ovs-ofctl del-flows` 是危险操作，
+    # anomaly_traffic 刻意不提供自动处置。**它的原处置方向是反的。**
+    #
+    # 该诊断唯一的触发条件是「带宽相对基线跌幅 ≥50%」（diagnose() 里
+    # `bw_drop >= THROUGHPUT_DROP_RATIO`），而原处置是
+    # `tc qdisc add dev {iface} root netem rate {rate}mbit`——限速。
+    # 也就是「带宽掉了」→「把带宽再限死一点」。
+    #
+    # 拿实测数据推演（tests/fixtures/lab/throughput-real.json）：
+    # 健康态 21.08Mbps，限速态 4.01Mbps（跌 81% → 判 anomaly_traffic），
+    # 处置要限到 5Mbps——限值高于已经跌下去的带宽，基本是空动作；
+    # 链路跌到 8Mbps 时，限到 5Mbps 就是把它弄得更糟。
+    #
+    # 根因是这个分支原本要检测「流量过高」，但代码里**根本不存在**带宽过高的
+    # 判定，只有一条「带宽跌太多」的分支，名字与触发条件对不上。
+    # 带宽下降是**症状**不是病因：可能是拥塞、链路劣化、策略变更或设备故障，
+    # 没有哪一条能靠限速修好。限速是对因不对症的自作主张，所以不自动做。
+    #
+    # config_error 同样刻意不给自动处置：`ovs-ofctl del-flows` 是危险操作，
     # 安全门只放行「本系统签发过的流表」（带 NetMind cookie）。拿不到这个
     # 归属证明就不该自动动手——绕开它等于把「回滚任意流表」变成一个开关。
-    # 需要处置时由人确认 cookie 后再下发。
 }
 
 
 class RemediationUnavailable(Exception):
     """缺必要参数或该诊断无对应处置原语——如实说，不编一个动作。"""
+
+
+# 「我们决定不做」和「我们不知道怎么做」必须让使用者分得开。
+# 缺了这份说明，运维看到「没有对应的处置原语」只能自己去翻源码，
+# 才会知道这不是能力缺失而是刻意的安全选择。
+NO_AUTO_REMEDIATION_REASON = {
+    'anomaly_traffic': (
+        'anomaly_traffic 不做自动处置：它的唯一触发条件是带宽跌幅超过一半，'
+        '而原处置是限速——等于把已经掉下去的带宽再限死一点。限速修不好带宽下降，'
+        '最坏还会更糟（实测健康态 21.08Mbps，限速态 4.01Mbps，限到 5Mbps 基本是空动作）。'
+        '带宽下降是症状不是病因：拥塞、链路劣化、策略变更、设备故障，'
+        '没有哪一条能靠限速解决。这个诊断会照常报出来，请人工判断根因。'),
+    'config_error': (
+        'config_error 不做自动处置：唯一可用的动作是 ovs-ofctl del-flows，'
+        '属危险操作，安全门只放行本系统签发过的流表（带 NetMind cookie）。'
+        '拿不到这个归属证明就动手，等于把「回滚任意流表」做成一个开关。'
+        '需要时由人确认 cookie 后再下发。'),
+}
 
 
 # 回滚能力分级。分级的意义在于：一条只读命令不该被算作「已回滚」。
@@ -95,7 +124,7 @@ def rollback_info(kind: str, params: dict | None = None) -> dict:
 
 
 def build(diagnosis: Diagnosis, *, iface: str | None = None,
-          backup: str | None = None, rate_mbps: int = 5,
+          backup: str | None = None,
           bridge: str | None = None, execution_id: str | None = None) -> PolicySet:
     """生成处置方案。参数不足就抛 RemediationUnavailable，不返回半成品。"""
     kind = diagnosis.type
@@ -103,19 +132,18 @@ def build(diagnosis: Diagnosis, *, iface: str | None = None,
         raise RemediationUnavailable('诊断为正常，无需处置')
     spec = REMEDIATIONS.get(kind)
     if spec is None:
-        raise RemediationUnavailable(f'没有针对 {kind} 的处置原语')
+        raise RemediationUnavailable(
+            NO_AUTO_REMEDIATION_REASON.get(kind, f'没有针对 {kind} 的处置原语'))
 
     params: dict[str, str] = {}
     if 'iface' in spec['requires'] and iface:
         params['iface'] = iface
     if spec['requires'] == 'iface+backup' and backup:
         params['backup'] = backup
-    if 'rate' in spec['requires']:
-        params['rate'] = str(rate_mbps)
     if 'bridge' in spec['requires'] and bridge:
         params['bridge'] = bridge
 
-    missing = [k for k in ('iface', 'backup', 'rate', 'bridge') if k in spec['template'] and k not in params]
+    missing = [k for k in ('iface', 'backup', 'bridge') if k in spec['template'] and k not in params]
     if missing:
         raise RemediationUnavailable(
             f'{kind} 的处置需要参数 {missing}（模板：{spec["template"]}）')

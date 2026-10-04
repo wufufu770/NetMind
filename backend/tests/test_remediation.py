@@ -38,7 +38,6 @@ def test_missing_params_refuses_rather_than_invents():
 _SAMPLES = {
     'congestion':      dict(iface='eth0'),
     'link_down':       dict(iface='eth0', backup='10.9.0.0/24 via 192.0.2.9'),
-    'anomaly_traffic': dict(iface='eth0', rate_mbps=5),
 }
 
 
@@ -136,7 +135,6 @@ def test_congestion_rollback_is_declared_not_reversible():
 
 def test_rollback_capability_is_not_claimed_without_an_inverse(real_device_mode):
     """三种处置里，能真撤销的必须真给逆命令，不能只给只读检查。"""
-    assert rollback_info('anomaly_traffic', {'iface': 'eth0'})['capability'] == ROLLBACK_INVERSE
     assert rollback_info('link_down', {'iface': 'eth0', 'backup': '10.9.0.0/24'})['capability'] == ROLLBACK_INVERSE
     # 缺参数就没有可撤销的对象
     assert rollback_info('link_down', {'iface': 'eth0'})['capability'] == ROLLBACK_NONE
@@ -182,10 +180,11 @@ def test_link_down_generates_failover_route():
 
 
 def test_remediations_table_covers_only_auto_actionable_kinds():
-    for k in ('congestion', 'link_down', 'anomaly_traffic'):
+    for k in ('congestion', 'link_down'):
         assert k in REMEDIATIONS
-    assert 'config_error' not in REMEDIATIONS, \
-        'config_error 的流表回滚需归属证明，不该进自动处置表'
+    for k in ('config_error', 'anomaly_traffic'):
+        assert k not in REMEDIATIONS, \
+            f'{k} 刻意不给自动处置，不该回到自动处置表里'
     for kind, spec in REMEDIATIONS.items():
         assert set(spec) == {'template', 'intent', 'requires'}, \
             f'{kind} 的处置规格字段不齐'
@@ -251,8 +250,8 @@ def test_no_improvement_triggers_an_actual_rollback(monkeypatch, sim_trans):
     早先这里只把 success 报成 False，坏变更留在设备上，而 docstring 却写着
     「触发回滚」。报告里不出现 rollback 段就说明回滚没发生。
     """
-    r = _no_improvement(monkeypatch, sim_trans, 'anomaly_traffic',
-                        iface='eth0', rate_mbps=5)
+    r = _no_improvement(monkeypatch, sim_trans, 'link_down',
+                        iface='eth0', backup='10.9.0.0/24 via 192.0.2.9')
     assert sim_trans.rollbacks, '未改善却没有触发回滚'
     assert r.success is False
     assert r.improvement['rollback']['attempted'] is True
@@ -263,7 +262,8 @@ def test_no_improvement_triggers_an_actual_rollback(monkeypatch, sim_trans):
 def test_rollback_failure_is_reported_as_incomplete(monkeypatch, sim_trans):
     """回滚命令下发失败要说「回滚未完成」，不能含糊成别的。"""
     sim_trans.rollback_ok = False
-    r = _no_improvement(monkeypatch, sim_trans, 'anomaly_traffic', iface='eth0', rate_mbps=5)
+    r = _no_improvement(monkeypatch, sim_trans, 'link_down',
+                        iface='eth0', backup='10.9.0.0/24 via 192.0.2.9')
     assert r.improvement['rollback']['complete'] is False
     assert '回滚未完成' in r.summary
     assert r.success is False
@@ -282,7 +282,8 @@ def test_remediation_without_inverse_says_it_cannot_roll_back(monkeypatch, sim_t
 
 def test_rollback_reason_records_the_measurement(monkeypatch, sim_trans):
     """回滚的原因得带上前后测值——否则事后无从判断该不该撤。"""
-    _no_improvement(monkeypatch, sim_trans, 'anomaly_traffic', iface='eth0', rate_mbps=5)
+    _no_improvement(monkeypatch, sim_trans, 'link_down',
+                    iface='eth0', backup='10.9.0.0/24 via 192.0.2.9')
     _eid, reason = sim_trans.rollbacks[-1]
     assert '200.0' in reason and 'no improvement' in reason
 
@@ -359,3 +360,55 @@ def test_report_records_planned_commands_and_measurement_source(monkeypatch, sim
     assert r.improvement['planned_commands'] == ['tc qdisc del dev eth0 root']
     assert r.improvement['measured'] in ('real', 'simulated')
     assert 'latency_before_ms' in r.improvement and 'latency_after_ms' in r.improvement
+
+
+# ---------- anomaly_traffic：诊断与处置方向相反，因此不给自动处置 ----------
+
+def test_anomaly_traffic_has_no_auto_remediation_because_the_action_is_backwards():
+    """该诊断唯一的触发条件是「带宽跌幅 ≥50%」，而原处置是**限速**。
+
+    也就是「带宽掉了」→「把带宽再限死一点」。拿实测数据推演
+    （tests/fixtures/lab/throughput-real.json）：健康态 21.08Mbps、限速态
+    4.01Mbps（跌 81% → 判 anomaly_traffic），处置要限到 5Mbps——限值高于
+    已经跌下去的带宽，基本是空动作；链路跌到 8Mbps 时则是把它弄得更糟。
+
+    带宽下降是症状不是病因：拥塞、链路劣化、策略变更、设备故障，没有哪一条
+    能靠限速修好。所以它可以**被诊断**，但不该**被自动处置**。
+    """
+    from app.core import telemetry as tel
+    from app.core.remediation import RemediationUnavailable
+
+    assert 'anomaly_traffic' not in REMEDIATIONS, \
+        'anomaly_traffic 又有了自动处置——先确认限速还适不适合「带宽下降」这个诊断'
+    # 诊断本身保留：它标记了一个真实存在的异常，值得让人看见
+    assert tel.THROUGHPUT_DROP_RATIO == 0.5
+    with pytest.raises(RemediationUnavailable) as e:
+        build(Diagnosis(type='anomaly_traffic', confidence=0.9), iface='eth0')
+    assert 'anomaly_traffic' in str(e.value)
+
+
+def test_no_remediation_template_limits_bandwidth():
+    """兜底断言：处置表里不该再出现任何「限速」类模板。
+
+    只要没有「带宽下降 → 限速」这种配对，方向就不会再反。
+    真要限速某个流量，那是**策略意图**该做的事（由人写策略），
+    不是从一次遥测异常里自动推出来的动作。
+    """
+    for kind, spec in REMEDIATIONS.items():
+        assert 'rate' not in spec['template'], (
+            f'{kind} 的处置模板是限速：限速修不好「带宽下降」，'
+            f'会把它弄得更糟 —— {spec["template"]}')
+
+
+def test_refusal_explains_that_it_is_deliberate_not_a_gap():
+    """「刻意不做」和「不知道怎么做」要让使用者分得开。
+
+    运维只看到「没有对应的处置原语」，只能自己去翻源码才知道这不是能力缺失。
+    措辞里必须带上原因。
+    """
+    for kind in ('anomaly_traffic', 'config_error'):
+        with pytest.raises(RemediationUnavailable) as e:
+            build(Diagnosis(type=kind, confidence=0.9), iface='eth0', bridge='br0')
+        msg = str(e.value)
+        assert '不做自动处置' in msg, f'{kind} 的拒绝理由没说清是刻意选择：{msg[:80]}'
+        assert len(msg) > 40, f'{kind} 的拒绝理由太短，运维看不出为什么：{msg}'

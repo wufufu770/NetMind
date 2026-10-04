@@ -3,6 +3,31 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Fixed
+- **`scripts/verify_heal.py` 依赖「探测目标恰好可达」这个环境残留**。注入 netem
+  只能让**可达**的目标变慢；目标本来就 100% 丢包时，加不加整形都一样，诊断会判成
+  link_down，验证作废（实测在实验台重建后即如此）。新增
+  `NETMIND_VERIFY_BASELINE_ROUTE` 让脚本自备可达基线；未提供时若基线不可达，
+  脚本**早退并说清修法**，而不是跑到一半才发现验证不成立
+
+### Removed
+- **`anomaly_traffic` 的自动处置（`tc qdisc add ... netem rate`）——方向是反的**。
+  该诊断唯一的触发条件是「带宽相对基线跌幅 ≥50%」，而处置是限速，也就是
+  「带宽掉了 → 把带宽再限死一点」。拿实测数据推演（健康态 21.08Mbps、
+  限速态 4.01Mbps 判 anomaly_traffic）：限到 5Mbps 的限值**高于**已跌下去的
+  4.01Mbps，基本是空动作；链路跌到 8Mbps 时则是把它弄得更糟。根因是这个
+  分支原本要检测「流量过高」，但代码里根本没有带宽过高的判定，只有「带宽跌
+  太多」一条，名字与触发条件对不上。带宽下降是症状不是病因，没有哪一条能靠
+  限速修好。**诊断保留**（它标记了真实异常），`heal()` 改为明确拒绝并说明
+  原因。设备侧读回确认拒绝后 `qdisc noqueue`、路由表未变——什么都没下发。
+  门禁 `remediation-matches-diagnosis-direction` 锁死
+
+### Fixed
+- **拒绝自动处置时只说「没有对应的处置原语」**。运维分不清这是能力缺失还是
+  刻意的安全选择，只能自己去翻源码。新增 `NO_AUTO_REMEDIATION_REASON`，
+  `anomaly_traffic` 与 `config_error` 各自带上面向使用者的理由
+- 顺带清掉随之失去用途的 `rate_mbps` 参数（`heal()` 与 `remediation.build()`）
+
 ### Added
 - `scripts/verify_linkdown.py`：在真实设备上验 `link_down` 处置路径，两个场景都取
   **设备侧独立证据**（读路由表 + 设备自己 ping），不采信 NetMind 自报。

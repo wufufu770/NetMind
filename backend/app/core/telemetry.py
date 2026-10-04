@@ -197,7 +197,7 @@ class TelemetryService:
                                    'samples': n},
                          confidence=_normal_confidence(latency, loss, n, sim))
     def heal(self, diagnosis: Diagnosis, *, iface: str | None = None,
-             backup: str | None = None, rate_mbps: int = 5,
+             backup: str | None = None,
              bridge: str | None = None) -> HealingReport:
         """自愈：生成真命令 → 过安全门 → 真下发 → 重测 → 必要时回滚。
 
@@ -224,8 +224,7 @@ class TelemetryService:
 
         # 调用方没给目标就按配置兜底；两处都没有则自动处置处于关闭状态。
         # 不猜接口：猜错会把命令下到错误的口上。
-        params: dict = {'iface': iface, 'backup': backup, 'rate_mbps': rate_mbps,
-                        'bridge': bridge}
+        params: dict = {'iface': iface, 'backup': backup, 'bridge': bridge}
         if not iface:
             try:
                 params.update(target_for(diagnosis.type))
@@ -242,7 +241,7 @@ class TelemetryService:
 
         try:
             plan = build(diagnosis, iface=params['iface'], backup=params['backup'],
-                         rate_mbps=params['rate_mbps'], bridge=params['bridge'],
+                         bridge=params['bridge'],
                          execution_id=eid)
         except RemediationUnavailable as exc:
             self.fault = 'normal' if diagnosis.type == 'normal' else self.fault

@@ -56,7 +56,9 @@ scripts/lab.sh measure   # 采三态原始数据
 NETMIND_DRIVER=ssh NETMIND_SSH_HOST=192.168.1.11 NETMIND_SSH_PORT=2222 \
 NETMIND_SSH_USERNAME=netmind NETMIND_SSH_PASSWORD=netmind123 \
 NETMIND_ENABLE_REAL_COMMANDS=true NETMIND_SUDO=true \
-NETMIND_PROBE_TARGET=192.168.1.30 .venv/bin/python scripts/verify_heal.py
+NETMIND_PROBE_TARGET=192.168.3.1 \
+NETMIND_VERIFY_BASELINE_ROUTE="192.168.3.0/24 via 192.168.1.2 dev eth0" \
+.venv/bin/python scripts/verify_heal.py
 ```
 
 | 步骤 | 观测 | 来源 |
@@ -106,11 +108,7 @@ Operation not permitted` 里。**表层报错与真因不在一处**，只信表
 **再没有任何入口能撤销它**。最该撤销的场景反而是唯一撤不掉的。
 
 ```bash
-scripts/lab.sh up
-NETMIND_DRIVER=ssh NETMIND_SSH_HOST=192.168.1.11 NETMIND_SSH_PORT=2222 \
-NETMIND_SSH_USERNAME=netmind NETMIND_SSH_PASSWORD=netmind123 \
-NETMIND_ENABLE_REAL_COMMANDS=true NETMIND_SUDO=true \
-NETMIND_PROBE_TARGET=192.168.1.30 .venv/bin/python scripts/verify_heal.py --scenario rollback
+scripts/verify_linkdown.py   # 两个场景：修好了 / 没修好→真回滚
 ```
 
 | 步骤 | 观测 | 来源 |
@@ -122,8 +120,13 @@ NETMIND_PROBE_TARGET=192.168.1.30 .venv/bin/python scripts/verify_heal.py --scen
 | 判定 | `capability=inverse` `attempted=True` `rolled_back=True` `complete=True` | 回滚报告 |
 | 设备侧读回 | `qdisc noqueue 0: root refcnt 2` | 设备侧读回 |
 
-限速被真实撤销，设备回到起点。回滚效果能在设备上直接读回，是因为
-`anomaly_traffic` 的处置是**加**一条限速、逆操作就是删掉它，等量可逆。
+限速被真实撤销，设备回到起点。回滚效果能在设备上直接读回，是因为当时的处置
+是**加**一条限速、逆操作就是删掉它，等量可逆。
+
+> **后来这条处置被撤掉了。** 它验证的是回滚机制（可逆处置确实能被等量撤销），
+> 这个结论仍然成立。但 `anomaly_traffic` 本身已从自动处置表移除——理由见下方
+> 「处置方向反了」一节。现在 `link_down` 是自动处置里唯一的可逆路径，
+> 它的回滚在真实设备上另有验证。
 
 **`congestion` 撤不回来，这是实话。** 它的处置是删掉设备原有的队列整形；
 要恢复得知道原来是什么（netem 延迟？限速？prio 队列？），而处置前没采这个状态。
@@ -199,6 +202,43 @@ sudo 编译时未启用 drop-in 目录，那个文件**从未被读取**——`s
 而 `NetMind 的 NETMIND_SUDO 依赖免密提权。现改为追加到 `/etc/sudoers` 本体并用
 `visudo -c` 校验（语法写错会让容器里 sudo 整体不可用），起台时打印 `SudoersOK`。
 
+## 处置方向反了：`anomaly_traffic` 被撤出自动处置
+
+`anomaly_traffic` 的原处置是 `tc qdisc add dev {iface} root netem rate {rate}mbit`（限速）。
+而这个诊断**唯一的触发条件**是「带宽相对基线跌幅 ≥50%」
+（`diagnose()` 里的 `bw_drop >= THROUGHPUT_DROP_RATIO`）。
+
+也就是：**带宽掉了 → 把带宽再限死一点。**
+
+拿本报告自己的实测数据推演（`tests/fixtures/lab/throughput-real.json`）：
+
+| 状态 | 吞吐 | 诊断 |
+|---|---|---|
+| healthy | 21.08 Mbps | normal |
+| rate_limited | 4.01 Mbps（跌 81%） | **anomaly_traffic** |
+
+处置要把接口限到 5 Mbps——限值**高于**已经跌下去的 4.01 Mbps，基本是空动作；
+若链路跌到 8 Mbps，限到 5 Mbps 就是把它弄得更糟。
+
+根因是这个分支原本要检测「流量过高」，但代码里**根本不存在**带宽过高的判定，
+只有一条「带宽跌太多」的分支，名字与触发条件对不上。带宽下降是**症状**不是病因：
+拥塞、链路劣化、策略变更、设备故障，没有哪一条能靠限速修好。
+
+处理：移出自动处置表。诊断保留（它标记了一个真实异常，值得让人看见），但
+`heal()` 会明确拒绝并说明原因，而不是发一条方向相反的命令：
+
+```
+anomaly_traffic 不做自动处置：它的唯一触发条件是带宽跌幅超过一半，
+而原处置是限速——等于把已经掉下去的带宽再限死一点。…带宽下降是症状
+不是病因…这个诊断会照常报出来，请人工判断根因。
+```
+
+设备侧读回确认：拒绝后 `qdisc noqueue`、路由表未变——**什么都没下发**。
+
+顺带说明「拒绝时也要说人话」：原先的措辞只有「没有针对 anomaly_traffic 的
+处置原语」，运维无法分辨这是能力缺失还是刻意的安全选择，得自己去翻源码。
+现在拒绝理由里直接带上原因（`NO_AUTO_REMEDIATION_REASON`）。
+
 ## S3 是本报告最重要的一行
 
 S3 注入的是和 S1 完全相同的真故障，处置动作却是空操作。结果：
@@ -256,7 +296,7 @@ False；重测没改善则触发回滚并如实记录；探针挂了就记异常
 |---|---|
 | Lab data collection | S0–S3 全部来自活实验台实测 |
 | Post-apply verification | ✅ 已实现——S1/S2 的 `verified=True` 即重测完成 |
-| Healing action | ✅ Real（机制层）—— 处置是真命令，过安全门后经 SSH 真下发并重测；`congestion`、`anomaly_traffic`、`link_down` 三条路径均已在真实设备实跑，见上三节。⚠️ `anomaly_traffic` 只验过回滚方向；⚠️ 真实生产故障未验证 |
-| Post-verify rollback | ✅ Real（机制层）—— 下发成功但重测无改善时真调 `rollback()` 撤销，`anomaly_traffic` 路径已在设备上读回确认限速被撤掉。⚠️ `congestion` 结构性不可回滚，如实报「无法自动回滚」 |
+| Healing action | ✅ Real（机制层）—— 处置是真命令，过安全门后经 SSH 真下发并重测；`congestion`、`link_down` 两条自动处置路径均已在真实设备端到端跑通，见上两节。⚠️ `anomaly_traffic` 与 `config_error` 刻意不给自动处置（前者方向相反、后者需归属证明）；⚠️ 真实生产故障未验证 |
+| Post-verify rollback | ✅ Real（机制层）—— 下发成功但重测无改善时真调 `rollback()` 撤销，`link_down` 路径已在设备上读回确认路由被撤下。⚠️ `congestion` 结构性不可回滚，如实报「无法自动回滚」 |
 | Diagnosis thresholds | ⚠️ 阈值为单一拓扑标定；带宽判定需基线，无基线时跳过 |
 | Routing state | ✅ Real — zebra 真实路由表（仅直连+静态，无动态协议） |

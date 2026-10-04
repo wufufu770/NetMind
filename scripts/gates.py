@@ -40,6 +40,51 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='remediation-matches-diagnosis-direction',
+        desc='处置的方向不得与诊断条件相反（带宽下降不得用限速去「修」）',
+        on_fail='block',
+        check=r"""
+# 处置必须对症。曾经 `anomaly_traffic` 的触发条件是「带宽跌幅 ≥50%」，
+# 而处置是 `tc qdisc add ... netem rate {rate}mbit`——限速。
+# 也就是「带宽掉了 → 把带宽再限死一点」：限值高于已跌下去的带宽时是空动作，
+# 低于时把它弄得更糟。没有任何一种情况下能修好。
+#
+# 这类错误测试抓不住：命令能生成、过得了安全门、在真机上也能真下发——
+# 它只是**方向不对**，而所有结构性检查都会放行。所以要按「语义配对」来卡。
+import os, sys
+sys.path.insert(0, str(ROOT / 'backend'))
+from app.core.remediation import (NO_AUTO_REMEDIATION_REASON,  # noqa: E402
+                                  REMEDIATIONS)
+from app.core import telemetry as tel                        # noqa: E402
+
+# 1) 处置表里不该有任何限速类模板。只要没有「带宽下降 → 限速」这种配对，
+#    方向就不会再反。真要限速某个流量是**策略意图**该做的事（人写策略），
+#    不是从一次遥测异常里自动推出来的。
+for kind, spec in REMEDIATIONS.items():
+    assert 'rate' not in spec['template'], (
+        f'{kind} 的处置模板是限速（{spec["template"]}）。'
+        f'带宽下降是症状不是病因，限速修不好它，最坏还会更糟。')
+
+# 2) 两个刻意不给自动处置的诊断，必须都有给使用者看的理由。
+#    少了理由，运维看到「没有对应的处置原语」只能自己去翻源码。
+for kind in ('anomaly_traffic', 'config_error'):
+    assert kind not in REMEDIATIONS, f'{kind} 不该有自动处置'
+    reason = NO_AUTO_REMEDIATION_REASON.get(kind, '')
+    assert reason and len(reason) > 40, f'{kind} 缺给使用者看的拒绝理由'
+    assert '不做自动处置' in reason, f'{kind} 的理由没说清是刻意选择而非能力缺失'
+
+# 3) 方向前提本身：anomaly_traffic 只能由「带宽下跌」触发。
+#    若将来真的加上了「带宽过高」分支，限速就有了适用场景，
+#    那时应当把本门禁与 REMEDIATIONS 一起重新评估，而不是悄悄放行。
+src = (ROOT / 'backend' / 'app' / 'core' / 'telemetry.py').read_text(encoding='utf-8')
+assert tel.THROUGHPUT_DROP_RATIO == 0.5, '带宽跌幅阈值变了，anomaly_traffic 的语义前提需重新评估'
+branch = src[src.index("'anomaly_traffic'"):]
+branch = branch[:branch.index('return Diagnosis(type=', 10)]
+assert 'bw_drop' in branch, \
+    'anomaly_traffic 的触发条件不再基于带宽下跌——限速可能重新变得适用，请重新评估'
+""",
+    ),
+    Gate(
         id='gates-do-not-pollute-each-other',
         desc='门禁按顺序同进程执行：inline 检查体跑完后 store 必须与跑之前一致',
         on_fail='block',
@@ -1220,8 +1265,14 @@ try:
         latency_ms=200.0, packet_loss=0.30, throughput_mbps=10, alert=True, source='real')
     TELEMETRY._last_fallback = ''
 
-    rep = TELEMETRY.heal(Diagnosis(type='anomaly_traffic', confidence=0.9),
-                         iface='eth0', rate_mbps=5)
+    # 用 link_down：它是自动处置里**唯一**可逆的路径（inverse 能力）。
+    # 早先这里用 anomaly_traffic，那条处置已因「诊断=带宽跌、动作=限速」方向相反
+    # 被移出处置表——门禁没跟着改就会与代码漂移（实测报
+    # TypeError: heal() got an unexpected keyword argument 'rate_mbps'）。
+    # 门禁引用生产 API 的地方随 API 变更是常事，但**必须一起改**，否则它测的是
+    # 一个已经不存在的功能。
+    rep = TELEMETRY.heal(Diagnosis(type='link_down', confidence=0.9),
+                         iface='eth0', backup='10.9.0.0/24 via 192.0.2.9')
     assert calls['deploy'] == 1, '前置条件不成立：deploy 没被调用'
     assert calls['rollback'] == 1, \
         '下发成功但指标没改善，却没有触发回滚——坏变更被留在设备上了'
@@ -1230,7 +1281,7 @@ try:
     rb = rep.improvement.get('rollback')
     assert rb and rb.get('attempted') is True, '报告里没有回滚记录，无法判断是否撤销过'
     assert rb.get('capability') == ROLLBACK_INVERSE, \
-        f"anomaly_traffic 是可逆的，回滚能力不该报成 {rb.get('capability')}"
+        f"link_down 是可逆的，回滚能力不该报成 {rb.get('capability')}"
 
     # congestion 撤不回来：必须明说，且不得谎称已回滚
     calls['rollback'] = 0
