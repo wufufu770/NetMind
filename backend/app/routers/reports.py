@@ -1,6 +1,6 @@
 from __future__ import annotations
-from fastapi import APIRouter, Body
-from fastapi.responses import PlainTextResponse, HTMLResponse, Response
+from fastapi import APIRouter, Response, Body
+from fastapi.responses import PlainTextResponse, HTMLResponse, Response, JSONResponse
 from ..schemas import ReportOptions
 from ..core.report import REPORTER
 from .common import get_execution
@@ -36,12 +36,25 @@ def report_bundle(execution_id: str):
     md=REPORTER.markdown(ex)
     return {'execution_id':execution_id,'markdown':md,'html':'<pre>'+md+'</pre>','json':ex.model_dump(mode='json')}
 
+def _pdf_response(markdown: str, *, filename: str):
+    """PDF 响应。缺 CJK 字体时返回 422 并说清修法。
+
+    绝不返回一个「生成了但内容被静默丢弃」的 PDF——那正是此前手写实现的
+    问题：用户拿到一份几乎没有内容的文档，**且没有任何报错**。
+    """
+    from ..core.pdf_export import PdfFontUnavailable, markdown_to_pdf
+    try:
+        data = markdown_to_pdf(markdown, title=filename)
+    except PdfFontUnavailable as exc:
+        return JSONResponse(status_code=422, content={'error': str(exc)})
+    return Response(content=data, media_type='application/pdf',
+                    headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
 @router.get('/api/report/{execution_id}.pdf')
 def report_pdf(execution_id: str):
-    md=REPORTER.markdown(get_execution(execution_id))[:1800]
-    safe=md.replace('\\','\\\\').replace('(','\\(').replace(')','\\)').replace('\n','\\n')
-    pdf=f"%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n4 0 obj << /Length {len(safe)+64} >> stream\nBT /F1 10 Tf 40 800 Td ({safe}) Tj ET\nendstream endobj\n5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\nxref\n0 6\n0000000000 65535 f \ntrailer << /Root 1 0 R /Size 6 >>\nstartxref\n0\n%%EOF\n"
-    return Response(content=pdf.encode('latin-1','ignore'), media_type='application/pdf', headers={'Content-Disposition':f'attachment; filename="{execution_id}.pdf"'})
+    return _pdf_response(REPORTER.markdown(get_execution(execution_id)),
+                         filename=f'{execution_id}.pdf')
+
 
 @router.get('/api/report/{execution_id}/rich.html', response_class=HTMLResponse)
 def report_rich_html(execution_id: str):
@@ -51,4 +64,5 @@ def report_rich_html(execution_id: str):
 @router.get('/api/report/{execution_id}/rich.pdf')
 def report_rich_pdf(execution_id: str):
     from ..core.report_renderer import REPORT_RENDERER
-    return Response(content=REPORT_RENDERER.pdf_bytes(get_execution(execution_id)), media_type='application/pdf', headers={'Content-Disposition':f'attachment; filename="{execution_id}-rich.pdf"'})
+    return _pdf_response(REPORTER.markdown(get_execution(execution_id)),
+                         filename=f'{execution_id}-rich.pdf')

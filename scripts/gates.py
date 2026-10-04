@@ -65,6 +65,93 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='pdf-export-does-not-drop-chinese',
+        desc='PDF 导出不得静默丢弃汉字；缺中文字体时必须明确报错而不是返回残缺文件',
+        on_fail='block',
+        check=r"""
+# 报告正文是中文，而 base-14 的 Helvetica 只能表示 Latin-1。此前两条 PDF 路径
+# 各自手写了一份最小 PDF，用 `encode('latin-1', 'ignore')` 编码，于是
+# **每一个汉字都被静默丢弃**。用 pdftotext 读生成的文件：
+#     # NetMind exec-…- Status.success## 1.  - video_meeting
+# 而 markdown 原文：
+#     ## 1. 意图摘要 / - 描述：给会议网提高优先级
+# **用户导出 PDF 得到一份几乎没有内容的文档，且没有任何报错。**
+import os as _os
+import subprocess as _sp
+import sys as _sys
+# 只在单条内层脚本里改 path —— 污染外层 exec 命名空间会影响其他门禁
+_sys.path.insert(0, str(ROOT / 'backend'))      # 只在单条内层脚本里改 path，污染外层 exec 命名空间
+_k = ('NETMIND_ADMIN_TOKEN', 'NETMIND_ALLOW_ANON_READONLY', 'NETMIND_RATE_LIMIT')
+_s = {_k2: _os.environ.get(_k2) for _k2 in _k}
+try:
+    for _k2 in _k:
+        _os.environ.pop(_k2, None)
+    import app.core.access as _access
+    _access._client_host = lambda request: '127.0.0.1'
+    from fastapi.testclient import TestClient          # noqa: E402
+    from app.main import app as fastapi_app            # noqa: E402
+    from app.core.pdf_export import PdfFontUnavailable, markdown_to_pdf  # noqa: E402
+
+    _md = '# NetMind 执行报告：exec-1' + chr(10) + '- 描述：给会议网提高优先级' + chr(10)
+    _pdf = markdown_to_pdf(_md)
+    assert _pdf[:5] == b'%PDF-', 'PDF 头不对'
+    assert len(_pdf) > 5000, f'PDF 只有 {len(_pdf)} 字节，疑似汉字被丢掉只剩骨架'
+
+    # 用真实解析器把文字取回来核对
+    import re, tempfile
+    _txt = ''
+    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as _f:
+        _f.write(_pdf); _p = _f.name
+    try:
+        _r = _sp.run(['pdftotext', _p, '-'], capture_output=True, text=True, timeout=60)
+        _txt = _r.stdout if _r.returncode == 0 else ''
+    except (FileNotFoundError, _sp.TimeoutExpired):
+        _txt = ''
+    finally:
+        _os.unlink(_p)
+    if _txt:
+        for _tok in ('执行报告', '描述', '给会议网提高优先级'):
+            assert _tok in _txt, f'PDF 里读不回「{_tok}」——汉字被丢了。实际：{_txt[:200]}'
+
+    # 端点层：缺字体时必须是 422 + 修法，不能是 200 + 残缺文件。
+    # **要造执行记录就得还原**——本门禁第一版就是漏了这里，
+    # 被 gates-do-not-pollute-each-other 当场抓到（它污染了 STORE.executions）。
+    from app.store import STORE as _S
+    _saved_exec = dict(_S.executions)
+    _saved_tel = list(_S.telemetry)
+    _saved_appr = dict(_S.approvals)
+    try:
+        with TestClient(fastapi_app) as _c:
+            _eid = _c.post('/api/intent/submit',
+                           json={'text': '给会议网提高优先级', 'dry_run': True}).json()['execution_id']
+            _resp = _c.get(f'/api/report/{_eid}.pdf')
+            assert _resp.status_code == 200, f'正常路径返回 {_resp.status_code}'
+    finally:
+        _S.executions.clear(); _S.executions.update(_saved_exec)
+        _S.telemetry.clear(); _S.telemetry.extend(_saved_tel)
+        _S.approvals.clear(); _S.approvals.update(_saved_appr)
+
+    import app.core.pdf_export as _pe
+    _orig = _pe.register_cjk_font
+    _pe.register_cjk_font = lambda: None
+    try:
+        _raised = False
+        try:
+            markdown_to_pdf(_md)
+        except PdfFontUnavailable:
+            _raised = True
+        assert _raised, '缺中文字体时不报错——又回到「产出残缺文件还不吭声」'
+    finally:
+        _pe.register_cjk_font = _orig
+finally:
+    for _k2, _v in _s.items():
+        if _v is None:
+            _os.environ.pop(_k2, None)
+        else:
+            _os.environ[_k2] = _v
+""",
+    ),
+    Gate(
         id='honesty-table-signals-current-state',
         desc='诚实表的 ⚠️ 只表示「今天的限制」；已修复的坑不得继续挂 ⚠️',
         on_fail='block',

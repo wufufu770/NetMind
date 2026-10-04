@@ -187,6 +187,22 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **PDF 导出会静默丢掉全部汉字，且不报错**。两条 PDF 路径（`report_pdf` 与
+  `REPORT_RENDERER.pdf_bytes`）各自手写了一份最小 PDF，用
+  `encode('latin-1', 'ignore')` 编码；而报告正文是中文，base-14 的 Helvetica
+  只能表示 Latin-1，于是**每一个汉字都被扔掉**。用 `pdftotext` 读生成的文件
+  拿到的是 `# NetMind exec-…- Status.success## 1.  - video_meeting`，
+  而 markdown 原文是 `## 1. 意图摘要 / - 描述：给会议网提高优先级`。
+  **用户导出 PDF 得到一份几乎没有内容的文档，没有任何报错。**
+  同一份手写实现还有两个问题：xref 表是假的（`startxref 0` 指向文件开头，
+  严格校验器会拒绝）、`/Length` 是猜的。
+  现改用 reportlab 生成真 PDF（依赖 `reportlab==5.0.1`），并解决字体问题：
+  从系统发现 CJK 字体并逐个试到能被 reportlab 注册为止（Noto CJK 的 .ttc
+  是 CFF 轮廓、reportlab 装不上，所以必须逐个试而不是取第一个存在的）。
+  **找不到字体时明确报 422 并给出修法，绝不退回那份被阉割的输出。**
+  实测：PDF 从 1133 字节 → 34307 字节（含内嵌字体），
+  `pdftotext` 读出完整中文。补 12 个用例 + 门禁
+  `pdf-export-does-not-drop-chinese`（两个反例均已注入证伪）
 - **`netmind logs` 在没有日志时退出 0、stdout 全空**。循环体一次都不执行，
   使用者无法区分「命令失败了」与「确实没有日志」——CLI 是对用户说话的那一层，
   沉默在那一层最贵。现在空结果明确说明（含 limit 与查询词）
