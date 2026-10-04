@@ -3,161 +3,39 @@
 All notable changes to NetMind are documented here. Format: [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
-### Fixed
-- **`/api/config/credentials` 是个空转接口，而字段名让人以为它能连设备**。
-  条目带 `host` / `port` / `username` / `secret_ref`，读起来就是「凭这条去连设备」，
-  但**没有任何代码消费它们**——驱动只读 `NETMIND_SSH_HOST` 等环境变量。
-  运维 POST 一条生产设备的凭据、看到它被存下来、理所当然以为 NetMind 会用它。
-  安全相关的接口上静默空转是有害的。现在每行都带 `used_for_connection: false`
-  与指向真实环境变量的说明
-
-### Changed
-- **写明部署模型：一台实例 = 一台设备**（`docs/DEPLOY.md` 第 7 节 + 诚实表）。
-  由此澄清一个此前措辞有误导的缺口声明——原文写「no per-endpoint or per-device
-  scoping — an admin may act on every device」，暗示存在设备群；实际上单实例只连
-  `NETMIND_SSH_HOST` 那一台，**「按设备」这根轴根本不存在**。
-  C7 据此按「错框架」关闭而非「没做」：两档凭据已交付，
-  按端点细分在单人/小团队自托管单设备场景下是假想需求。
-  要做设备群纳管是另一个产品（牵动凭据模型、每次执行的目标选择、按设备授权）
-- 门禁 `no-inert-credential-surface`：要求凭据接口自述不可用于连接，并探测
-  `STORE.credentials` 是否出现消费方——真出现了就要求重新评估本门禁与诚实表措辞，
-  不让两处说法漂移。两种反例均已注入验证
-
-### Fixed
-- **`scripts/verify_heal.py` 依赖「探测目标恰好可达」这个环境残留**。注入 netem
-  只能让**可达**的目标变慢；目标本来就 100% 丢包时，加不加整形都一样，诊断会判成
-  link_down，验证作废（实测在实验台重建后即如此）。新增
-  `NETMIND_VERIFY_BASELINE_ROUTE` 让脚本自备可达基线；未提供时若基线不可达，
-  脚本**早退并说清修法**，而不是跑到一半才发现验证不成立
-
-### Removed
-- **`anomaly_traffic` 的自动处置（`tc qdisc add ... netem rate`）——方向是反的**。
-  该诊断唯一的触发条件是「带宽相对基线跌幅 ≥50%」，而处置是限速，也就是
-  「带宽掉了 → 把带宽再限死一点」。拿实测数据推演（健康态 21.08Mbps、
-  限速态 4.01Mbps 判 anomaly_traffic）：限到 5Mbps 的限值**高于**已跌下去的
-  4.01Mbps，基本是空动作；链路跌到 8Mbps 时则是把它弄得更糟。根因是这个
-  分支原本要检测「流量过高」，但代码里根本没有带宽过高的判定，只有「带宽跌
-  太多」一条，名字与触发条件对不上。带宽下降是症状不是病因，没有哪一条能靠
-  限速修好。**诊断保留**（它标记了真实异常），`heal()` 改为明确拒绝并说明
-  原因。设备侧读回确认拒绝后 `qdisc noqueue`、路由表未变——什么都没下发。
-  门禁 `remediation-matches-diagnosis-direction` 锁死
-
-### Fixed
-- **拒绝自动处置时只说「没有对应的处置原语」**。运维分不清这是能力缺失还是
-  刻意的安全选择，只能自己去翻源码。新增 `NO_AUTO_REMEDIATION_REASON`，
-  `anomaly_traffic` 与 `config_error` 各自带上面向使用者的理由
-- 顺带清掉随之失去用途的 `rate_mbps` 参数（`heal()` 与 `remediation.build()`）
-
 ### Added
+- `frontend/src/lib/client.js`：请求层（`request` / `useApi` / `normalizeList` /
+  `toastMessage` / `copyText` / `downloadText`）从 App.jsx 抽出。抽它的理由不是
+  「文件太长」——App.jsx 里还堆着十来个页面组件，那是另一回事——而是**这段此前
+  一行测试都写不了**：`node --test` 只能直接 import 纯模块，而 App.jsx 是带 JSX
+  的入口文件。而 `request()` 承载的认证契约已被打错过两次
+- `frontend/src/lib/constants.js`：主题预设、字体、状态文案、示例意图、模型预设
+  等静态数据同样抽出（零逻辑零 JSX）。App.jsx 1887 → 1676 行
+- 9 个新用例覆盖请求层：Bearer 头、不自造 `X-NetMind-Admin`、无默认凭据、
+  只读/管理员凭据切换、`credentialKind` 不漏进 fetch、body 自动 JSON 化、
+  401 与 403 的可区分报错、normalizeList 的各返回形状。前端 46 → **55**
+- 门禁 `frontend-request-layer-is-tested`：要求请求层留在 `lib/` 且有测试、
+  `lib/` 下不得出现 JSX（否则又 import 不了），并明确要求钉住那两次打错的行为。
+  两个反例均已证伪：把 `request()` 长回 App.jsx → 抓到；往 lib 里塞 JSX → 抓到
+- 门禁 `changelog-sections-not-duplicated`：Unreleased 段曾堆到 **13 个小节**
+  （每轮提交各自追加一个 `### Fixed`），手工合并过一次但没加门禁，几个回合就退回
+  原样。**只修一次的东西等于没修。** 现合并为 4 个小节并由门禁锁住
+- 门禁 `no-inert-credential-surface`
 - `scripts/verify_linkdown.py`：在真实设备上验 `link_down` 处置路径，两个场景都取
   **设备侧独立证据**（读路由表 + 设备自己 ping），不采信 NetMind 自报。
   场景 A 备份路由指向真实网关 → 丢包 1.0→0.0、延迟 999.0→0.209ms，设备路由表出现
   该条、设备侧 `0% packet loss`；场景 B 指向黑洞网关 → 未改善（丢包 0.0→1.0，
   比处置前更糟）→ 触发回滚 → 设备路由表确认该条已撤下、`success=False`。
   诚实表里「link_down 路径未在设备实跑」那条 ⚠️ 据此收口
-
-### Fixed
-- **`scripts/lab.sh` 的 sudoers 规则写进了 `/etc/sudoers.d/`，而那个目录从未被读取**。
-  该镜像的 sudo 编译时未启用 drop-in，于是 `sudo -n` 一直要密码——而
-  `NETMIND_SUDO` 依赖免密提权。改为追加到 `/etc/sudoers` 本体并用 `visudo -c`
-  校验（语法写错会让容器里 sudo 整体不可用），起台时打印 `SudoersOK`
-
-### Fixed
-- **面板上「丢包率 0.00%」而延迟是 `--`**。真浏览器验证时抓到的：后端返回
-  `packet_loss: null`（没采到数据），前端 `Number(metrics.packet_loss || 0)`
-  把它变成 0% 并渲染成「丢包率 0.00%」——同一张卡片里延迟显示 `--`、丢包显示
-  0%，等于把「没测」说成「测了，是 0」。躲过了前几轮清理是因为 `metricValue`
-  守的是 `value` 属性，而这一处躲在模板字符串里做 `* 100` 再 `toFixed`。
-  新增 `percentText()`（null 显示 `--`，真实的 0 照实显示 0.00%）并接上；
-  同类的 `step.duration_ms || 0` 也改为 null 时显示 `—`。
-  门禁 `no-missing-as-zero` 锁死这一类
-
-### Changed
-- **面板改为生产托管**。此前 `frontend` 容器跑的是 `npm run dev`（Vite dev
-  server）——把开发服务器当产品发出去，谈不上「可直接商用」：HMR 端点暴露、
-  源码不压缩、构建产物根本不进镜像。现改为多阶段构建 → nginx 托管 `dist/`
-  （镜像 74MB，源码与 node_modules 不进最终镜像），带内容指纹的资源长缓存
-  `immutable`、`index.html` `no-store`，并配了容器级 `/healthz`
-- **API 基址改为启动时注入，默认同源**。`VITE_*` 是构建期变量，所以镜像里烤死了
-  `VITE_API_URL=http://localhost:8000`——同一份镜像换访问地址就指错地方，
-  而且跨源发 `Authorization` 头会触发 CORS 预检，预检失败的表现常常像网络问题。
-  现在 nginx 在启动时替换 `index.html` 里的注入点，默认空串 = 同源，
-  由 nginx 把 `/api` 与 `/ws` 反代到后端
-- compose 补 healthcheck，frontend 用 `condition: service_healthy` 等后端真的就绪
-- `vite.config.js` 配了同样的 `/api`、`/ws` 代理，开发与生产的请求形状一致
-
-### Fixed
-- **`docker compose up` 之后面板全挂，每个接口 403**。实测：前端页面 200，但
-  `/api/system/status`、`/api/dashboard`、`/api/telemetry/latest` 在宿主机经
-  `localhost:8000` 访问时一律 403；容器内自访同一路径却 200。原因是后端判
-  「本机」看对端是不是 `127.0.0.1`，而经端口映射进来的请求对端是**网关 IP**
-  （`172.x.x.1`）——哪怕请求就发自你自己电脑的浏览器。安全模型是对的（默认拒绝），
-  错在可发现性：报错只说「请设置 token」，使用者会以为自己已经设过了。
-  现三处都点了名：README 快速开始、docs/DEPLOY.md 新增第 0 节、
-  docker-compose.yml 变量上方的注释，以及 403 报错正文本身。
-  门禁 `container-deploy-needs-token` 锁死
-
-### Fixed
-- **「配 token 后只保护非 GET 请求」这句错误说法在三个文档里各留了一份**。
-  实际是所有方法含 GET 都要认证：`/api/system/status`、`/api/dashboard`、
-  `/api/telemetry/latest` 实测不带 token 均 401。`SECURITY.md` 上一轮已改，
-  `docs/API.md` 与 `README.md` 的环境变量表原封不动。门禁 `security-doc-matches-behavior`
-  原先只查 `SECURITY.md`——**门禁覆盖了它检查的那份，并不代表别的文档是对的**。
-  现扩到全部客户可见文档（README / SECURITY / CHANGELOG / docs/*.md），
-  已用「在第三份文档里塞回 non-GET」的反例验证
-
-### Fixed
-- **「一切正常」是全项目唯一不经过推导的诊断结论**。异常分支的置信度早已改成按
-  证据推导，但 `return Diagnosis(type='normal')` 漏了——吃到 schema 默认的
-  confidence=0.9。实测三个后果：样本量 1 与 10 给出同一个 0.9；读数贴阈值
-  （45ms vs 50ms 门限）与读数极低（1ms）同样给 0.9；**`sim` 折扣在正常分支
-  完全没生效**——模拟数据得出的「一切正常」和真实数据一样自信。
-  一个样本都没有时也报 0.9。现按「离阈值多远 × 样本量 × 数据是否真实」推导，
-  无样本时返回 0.0 并说明原因。门禁 `no-unearned-confidence` 锁死
-
-### Added
 - 门禁 `fixtures-are-self-consistent`：真实抓包必须**自证**。ping 文件自报的
   transmitted/received 与 round-trip min/avg/max 要与它自己的报文行对得上，
   seq 连续，断链态不得有 round-trip 行；`key_finding` 引用的每个实测值要在真实
   数据集里查得到。已用两种编法验证有牙齿：统计行照抄真数据只把回包 time 随手编
   （被抓出 min/max/avg 三项全不符）、RTT 自洽只把收包数从 10 改成 12（被抓出
   自报 12 个回包但只有 10 行）——两种编法看起来都很真，两种都被抓住
-
-### Added
 - 前端展示层的取值决策抽到 `frontend/src/lib/display.js`（`frontend/src/lib/auth.js`
   同轮新增）：指标取值、健康分、健康环、验证摘要、置信度——都是「用户被告知什么」
   的决策点，此前散在 `App.jsx` 里一行测试都没有。补 20 个用例，前端 12→30
-
-### Fixed
-- **`/api/system/status` 的三个字段从不是测出来的**。`healthy` / `driver` / `model_online`
-  从未被任何代码赋值，全吃 schema 默认值——于是这个探活与运维真正会看的接口恒返回
-  `healthy=true` / `driver=simulation` / `model_online=true`：配了 SSH 驱动、模型离线、
-  压根没采到数据，都照报「健康」。现四个字段各自有出处，并新增 `telemetry_source`
-  与 `auth_mode`
-- **只读用户在界面上看不出自己是只读**。服务端早已按档位拦写操作（403），
-  但按钮照常可点，点了才知道不行——那比没有只读角色更让人困惑。
-  现读 `/api/system/status` 的 `auth_mode` 识别身份并给出明确提示
-
-- **配了 `NETMIND_ADMIN_TOKEN` 之后网页面板全线 401**（实测确认）。前端 `request()`
-  发的是 `X-NetMind-Admin` 自定义头，而后端只读 `Authorization: Bearer`——
-  于是 `docs/DEPLOY.md` 第 1 节推荐的部署方式下，整个界面不可用。
-  改为发标准头，并把凭据逻辑抽到 `frontend/src/lib/auth.js`（8 个新测试）
-- **一份写死的默认凭据**。前端此前有个兜底的 `'netmind-local-admin'`。
-  后端不认它所以只是无效字符串，但它离「一份所有人都知道的固定口令」只差
-  后端哪天认了这个头。现在取不到凭据就是取不到
-- 401 与 403 的提示不再混成一句「请求失败」：前者是没给或给错凭据，
-  后者是凭据有效但角色不够，提示里会分别告诉用户该配什么、该找谁申请
-
-
-## [0.2.0] - 2026-10-03
-
-这一版的重点不是加功能，是**把「说自己能做」的地方逐条改成真的**。下面每条
-「Fixed」在修复前都曾是对外可见的错误行为——文档这么写、界面这么显示、
-或者门禁这么绿。技术类细节见 `docs/closed-loop-run-report.md`、
-`docs/commercial-readiness-audit.md` 与 `docs/DEPLOY.md`。
-
-### Added
-
 **自愈闭环（真动作）**
 - 自愈处置是真命令而非中文描述串：过安全门 → TransactionManager 下发 → 重测对比
   （`core/remediation.py`）。`congestion` 路径已在真实设备端到端跑通
@@ -217,8 +95,133 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `CLA.md` 草案；`CONTRIBUTING.md` 第 5 条：营销面可核查律
 - 门禁从 8 条增至 28 条，全部行为判定，不做源码文本匹配
 
-### Fixed
+### Changed
+- **写明部署模型：一台实例 = 一台设备**（`docs/DEPLOY.md` 第 7 节 + 诚实表）。
+  由此澄清一个此前措辞有误导的缺口声明——原文写「no per-endpoint or per-device
+  scoping — an admin may act on every device」，暗示存在设备群；实际上单实例只连
+  `NETMIND_SSH_HOST` 那一台，**「按设备」这根轴根本不存在**。
+  C7 据此按「错框架」关闭而非「没做」：两档凭据已交付，
+  按端点细分在单人/小团队自托管单设备场景下是假想需求。
+  要做设备群纳管是另一个产品（牵动凭据模型、每次执行的目标选择、按设备授权）
+- 门禁 `no-inert-credential-surface`：要求凭据接口自述不可用于连接，并探测
+  `STORE.credentials` 是否出现消费方——真出现了就要求重新评估本门禁与诚实表措辞，
+  不让两处说法漂移。两种反例均已注入验证
+- **面板改为生产托管**。此前 `frontend` 容器跑的是 `npm run dev`（Vite dev
+  server）——把开发服务器当产品发出去，谈不上「可直接商用」：HMR 端点暴露、
+  源码不压缩、构建产物根本不进镜像。现改为多阶段构建 → nginx 托管 `dist/`
+  （镜像 74MB，源码与 node_modules 不进最终镜像），带内容指纹的资源长缓存
+  `immutable`、`index.html` `no-store`，并配了容器级 `/healthz`
+- **API 基址改为启动时注入，默认同源**。`VITE_*` 是构建期变量，所以镜像里烤死了
+  `VITE_API_URL=http://localhost:8000`——同一份镜像换访问地址就指错地方，
+  而且跨源发 `Authorization` 头会触发 CORS 预检，预检失败的表现常常像网络问题。
+  现在 nginx 在启动时替换 `index.html` 里的注入点，默认空串 = 同源，
+  由 nginx 把 `/api` 与 `/ws` 反代到后端
+- compose 补 healthcheck，frontend 用 `condition: service_healthy` 等后端真的就绪
+- `vite.config.js` 配了同样的 `/api`、`/ws` 代理，开发与生产的请求形状一致
+- 门禁退路体系：新增 `blocked` 状态与 `loop.py block`
+- 死模块门禁由 `autofix` 降级为 `block`——移动代码需要语义判断
+- `DeployResult.rollback_complete` 区分回滚全部成功与部分尝试
+- tc 接口名严格策略仅限仿真；真实驱动接受标准接口名
+- 厂商支持一律以 `GET /api/vendors` 矩阵为准，README 不再自述
+- 移除死依赖 `recharts@3.8.1`（声明了但 `src/` 从未 import，白装白交付还扩大
+  供应链面）；`vite` 从运行时依赖移入 devDependencies
 
+### Removed
+- **`anomaly_traffic` 的自动处置（`tc qdisc add ... netem rate`）——方向是反的**。
+  该诊断唯一的触发条件是「带宽相对基线跌幅 ≥50%」，而处置是限速，也就是
+  「带宽掉了 → 把带宽再限死一点」。拿实测数据推演（健康态 21.08Mbps、
+  限速态 4.01Mbps 判 anomaly_traffic）：限到 5Mbps 的限值**高于**已跌下去的
+  4.01Mbps，基本是空动作；链路跌到 8Mbps 时则是把它弄得更糟。根因是这个
+  分支原本要检测「流量过高」，但代码里根本没有带宽过高的判定，只有「带宽跌
+  太多」一条，名字与触发条件对不上。带宽下降是症状不是病因，没有哪一条能靠
+  限速修好。**诊断保留**（它标记了真实异常），`heal()` 改为明确拒绝并说明
+  原因。设备侧读回确认拒绝后 `qdisc noqueue`、路由表未变——什么都没下发。
+  门禁 `remediation-matches-diagnosis-direction` 锁死
+- `core/sqlite_store.py`：完整但从未接线的 23 行 KV 存储。零引用属死代码
+- `backend/build` 构建产物出库
+
+### Fixed
+- **抽出过程中当场发现：`request()` 里的 `apiUrl` 误写成 `apiPath`（旧别名），
+  而 `npm run build` 绿灯通过**。打包器不检查函数体内的未定义标识符，这个错误在
+  浏览器里是「首次 API 调用即崩」。测试一次抓到 8 条失败。
+  **这说明前端此前「构建通过 = 没问题」是错的**——已作为证据写进诚实表
+
+- **`/api/config/credentials` 是个空转接口，而字段名让人以为它能连设备**。
+  条目带 `host` / `port` / `username` / `secret_ref`，读起来就是「凭这条去连设备」，
+  但**没有任何代码消费它们**——驱动只读 `NETMIND_SSH_HOST` 等环境变量。
+  运维 POST 一条生产设备的凭据、看到它被存下来、理所当然以为 NetMind 会用它。
+  安全相关的接口上静默空转是有害的。现在每行都带 `used_for_connection: false`
+  与指向真实环境变量的说明
+- **`scripts/verify_heal.py` 依赖「探测目标恰好可达」这个环境残留**。注入 netem
+  只能让**可达**的目标变慢；目标本来就 100% 丢包时，加不加整形都一样，诊断会判成
+  link_down，验证作废（实测在实验台重建后即如此）。新增
+  `NETMIND_VERIFY_BASELINE_ROUTE` 让脚本自备可达基线；未提供时若基线不可达，
+  脚本**早退并说清修法**，而不是跑到一半才发现验证不成立
+- **拒绝自动处置时只说「没有对应的处置原语」**。运维分不清这是能力缺失还是
+  刻意的安全选择，只能自己去翻源码。新增 `NO_AUTO_REMEDIATION_REASON`，
+  `anomaly_traffic` 与 `config_error` 各自带上面向使用者的理由
+- 顺带清掉随之失去用途的 `rate_mbps` 参数（`heal()` 与 `remediation.build()`）
+- **`scripts/lab.sh` 的 sudoers 规则写进了 `/etc/sudoers.d/`，而那个目录从未被读取**。
+  该镜像的 sudo 编译时未启用 drop-in，于是 `sudo -n` 一直要密码——而
+  `NETMIND_SUDO` 依赖免密提权。改为追加到 `/etc/sudoers` 本体并用 `visudo -c`
+  校验（语法写错会让容器里 sudo 整体不可用），起台时打印 `SudoersOK`
+- **面板上「丢包率 0.00%」而延迟是 `--`**。真浏览器验证时抓到的：后端返回
+  `packet_loss: null`（没采到数据），前端 `Number(metrics.packet_loss || 0)`
+  把它变成 0% 并渲染成「丢包率 0.00%」——同一张卡片里延迟显示 `--`、丢包显示
+  0%，等于把「没测」说成「测了，是 0」。躲过了前几轮清理是因为 `metricValue`
+  守的是 `value` 属性，而这一处躲在模板字符串里做 `* 100` 再 `toFixed`。
+  新增 `percentText()`（null 显示 `--`，真实的 0 照实显示 0.00%）并接上；
+  同类的 `step.duration_ms || 0` 也改为 null 时显示 `—`。
+  门禁 `no-missing-as-zero` 锁死这一类
+- **`docker compose up` 之后面板全挂，每个接口 403**。实测：前端页面 200，但
+  `/api/system/status`、`/api/dashboard`、`/api/telemetry/latest` 在宿主机经
+  `localhost:8000` 访问时一律 403；容器内自访同一路径却 200。原因是后端判
+  「本机」看对端是不是 `127.0.0.1`，而经端口映射进来的请求对端是**网关 IP**
+  （`172.x.x.1`）——哪怕请求就发自你自己电脑的浏览器。安全模型是对的（默认拒绝），
+  错在可发现性：报错只说「请设置 token」，使用者会以为自己已经设过了。
+  现三处都点了名：README 快速开始、docs/DEPLOY.md 新增第 0 节、
+  docker-compose.yml 变量上方的注释，以及 403 报错正文本身。
+  门禁 `container-deploy-needs-token` 锁死
+- **「配 token 后只保护非 GET 请求」这句错误说法在三个文档里各留了一份**。
+  实际是所有方法含 GET 都要认证：`/api/system/status`、`/api/dashboard`、
+  `/api/telemetry/latest` 实测不带 token 均 401。`SECURITY.md` 上一轮已改，
+  `docs/API.md` 与 `README.md` 的环境变量表原封不动。门禁 `security-doc-matches-behavior`
+  原先只查 `SECURITY.md`——**门禁覆盖了它检查的那份，并不代表别的文档是对的**。
+  现扩到全部客户可见文档（README / SECURITY / CHANGELOG / docs/*.md），
+  已用「在第三份文档里塞回 non-GET」的反例验证
+- **「一切正常」是全项目唯一不经过推导的诊断结论**。异常分支的置信度早已改成按
+  证据推导，但 `return Diagnosis(type='normal')` 漏了——吃到 schema 默认的
+  confidence=0.9。实测三个后果：样本量 1 与 10 给出同一个 0.9；读数贴阈值
+  （45ms vs 50ms 门限）与读数极低（1ms）同样给 0.9；**`sim` 折扣在正常分支
+  完全没生效**——模拟数据得出的「一切正常」和真实数据一样自信。
+  一个样本都没有时也报 0.9。现按「离阈值多远 × 样本量 × 数据是否真实」推导，
+  无样本时返回 0.0 并说明原因。门禁 `no-unearned-confidence` 锁死
+- **`/api/system/status` 的三个字段从不是测出来的**。`healthy` / `driver` / `model_online`
+  从未被任何代码赋值，全吃 schema 默认值——于是这个探活与运维真正会看的接口恒返回
+  `healthy=true` / `driver=simulation` / `model_online=true`：配了 SSH 驱动、模型离线、
+  压根没采到数据，都照报「健康」。现四个字段各自有出处，并新增 `telemetry_source`
+  与 `auth_mode`
+- **只读用户在界面上看不出自己是只读**。服务端早已按档位拦写操作（403），
+  但按钮照常可点，点了才知道不行——那比没有只读角色更让人困惑。
+  现读 `/api/system/status` 的 `auth_mode` 识别身份并给出明确提示
+
+- **配了 `NETMIND_ADMIN_TOKEN` 之后网页面板全线 401**（实测确认）。前端 `request()`
+  发的是 `X-NetMind-Admin` 自定义头，而后端只读 `Authorization: Bearer`——
+  于是 `docs/DEPLOY.md` 第 1 节推荐的部署方式下，整个界面不可用。
+  改为发标准头，并把凭据逻辑抽到 `frontend/src/lib/auth.js`（8 个新测试）
+- **一份写死的默认凭据**。前端此前有个兜底的 `'netmind-local-admin'`。
+  后端不认它所以只是无效字符串，但它离「一份所有人都知道的固定口令」只差
+  后端哪天认了这个头。现在取不到凭据就是取不到
+- 401 与 403 的提示不再混成一句「请求失败」：前者是没给或给错凭据，
+  后者是凭据有效但角色不够，提示里会分别告诉用户该配什么、该找谁申请
+
+
+## [0.2.0] - 2026-10-03
+
+这一版的重点不是加功能，是**把「说自己能做」的地方逐条改成真的**。下面每条
+「Fixed」在修复前都曾是对外可见的错误行为——文档这么写、界面这么显示、
+或者门禁这么绿。技术类细节见 `docs/closed-loop-run-report.md`、
+`docs/commercial-readiness-audit.md` 与 `docs/DEPLOY.md`。
 **谎报类（对外可见的错误行为）**
 - **自愈恒报成功**。`HealingReport.success` 此前默认值 `True` 且全仓无代码赋值；
   `telemetry.heal()` 把 `fault` 改回 normal 再采一次样就算「处置成功」——
@@ -326,7 +329,6 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
   `init_from_env()` 在导入期改全局 → 改为每次判定时读
 
 ### Security
-
 - 默认安全：**未配 token 时只有本机能访问**（远程一律 403），配了 token 后
   **所有方法包括 GET** 都要 `Authorization: Bearer <token>`。`X-Forwarded-For`
   默认不采信，需显式 `NETMIND_TRUST_PROXY`
@@ -346,23 +348,7 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `SECURITY.md` 按实现重写：此前两处与实现不符（认证范围、回滚门），
   另补修复时效承诺与「尚不具备」的诚实声明（无 CVE 流程、无漏洞赏金、无签名产物）
 
-### Changed
-
-- 门禁退路体系：新增 `blocked` 状态与 `loop.py block`
-- 死模块门禁由 `autofix` 降级为 `block`——移动代码需要语义判断
-- `DeployResult.rollback_complete` 区分回滚全部成功与部分尝试
-- tc 接口名严格策略仅限仿真；真实驱动接受标准接口名
-- 厂商支持一律以 `GET /api/vendors` 矩阵为准，README 不再自述
-- 移除死依赖 `recharts@3.8.1`（声明了但 `src/` 从未 import，白装白交付还扩大
-  供应链面）；`vite` 从运行时依赖移入 devDependencies
-
-### Removed
-
-- `core/sqlite_store.py`：完整但从未接线的 23 行 KV 存储。零引用属死代码
-- `backend/build` 构建产物出库
-
 ### Known gaps in 0.2.0
-
 写在这里而不是藏起来：
 
 - **多厂商只在 Linux/FRR 上真实验证过**。`cisco-ios` / `juniper-junos` /
@@ -379,7 +365,6 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - **无 CVE 流程、无漏洞赏金、无签名发布产物**
 
 ### 索引：这一版每条主张的核查入口
-
 上面的条目都挂着可复现物。集中列一次，免得读者逐条翻。
 
 **28 条门禁**（`python3 scripts/loop.py gates` 一次跑完，全部行为判定，
@@ -437,6 +422,7 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 `nxos` / `nxos_ssh` → `nxos`，`iosxr` → `iosxr`
 
 **删除项**：`backend/build` 与 `build/`（`.gitignore` 已加）
+
 
 ## [0.1.0] - 2026-08-22
 

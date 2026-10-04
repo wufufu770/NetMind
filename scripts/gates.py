@@ -40,6 +40,111 @@ NS = {'ROOT': ROOT, 're': re, 'json': json, 'subprocess': subprocess}
 
 GATES: list[Gate] = [
     Gate(
+        id='changelog-sections-not-duplicated',
+        desc='CHANGELOG 每个版本段里同名小节只许出现一次（防止逐轮追加成十几段）',
+        on_fail='block',
+        check=r"""
+# 真实发生过的：Unreleased 段堆到 **13 个 `### Fixed` / `### Added`**——
+# 每一轮提交都自己加一个小节，读的人根本看不出这一版里有什么。手工合并过一次，
+# 但没加门禁，几个回合就退回原样。**只修一次的东西等于没修。**
+#
+# Keep a Changelog 的约定就是每个版本段内每种类型只有一个小节。
+import collections
+import re
+
+CHANGELOG = ROOT / 'CHANGELOG.md'
+assert CHANGELOG.exists(), 'CHANGELOG.md 缺失'
+text = CHANGELOG.read_text(encoding='utf-8')
+
+# 版本段边界：`## [X]` 或 `## [X] - date`
+starts = [(m.start(), m.group(1)) for m in re.finditer(r'^## \[(.+?)\]', text, flags=re.M)]
+assert len(starts) >= 2, 'CHANGELOG 里至少要有已发布版本与 Unreleased 两段'
+
+problems = []
+for i, (pos, name) in enumerate(starts):
+    seg_end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
+    seg = text[pos:seg_end]
+    heads = re.findall(r'^### (.+)$', seg, flags=re.M)
+    counts = collections.Counter(h.strip() for h in heads)
+    for h, n in counts.items():
+        if n > 1:
+            problems.append(f'{name} 段里 `### {h}` 出现了 {n} 次')
+    # 只对 Unreleased 段要求四类齐全且有序；已发布段是历史，不动它
+    if name.lower() == 'unreleased' and counts:
+        CANON = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
+        seen = [h for h in CANON if h in counts]
+        idx = [CANON.index(h) for h in seen]
+        if idx != sorted(idx):
+            problems.append(f'Unreleased 段的小节顺序不是 {CANON} 的子序顺序：{seen}')
+
+assert not problems, (
+    'CHANGELOG 的版本段里同名小节重复了——逐轮各自追加会让人读不出这一版有什么：\n  - '
+    + '\n  - '.join(problems)
+    + '\n合并同名小节即可；不要新增同类型小节。')
+""",
+    ),
+    Gate(
+        id='frontend-request-layer-is-tested',
+        desc='请求层必须在 lib/ 且有测试——vite build 抓不到函数体内的未定义引用',
+        on_fail='block',
+        check=r"""
+# 实测过的教训：把 `request()` 里的 `apiUrl` 误写成 `apiPath`（旧别名），
+# **`npm run build` 照样绿灯通过**，因为打包器不检查函数体内的未定义标识符；
+# 而它在浏览器里是「首次 API 调用即崩」。`npm test` 一次就抓到 8 条失败。
+#
+# 也就是说：前端此前「构建通过 = 没问题」这个假设是错的。而承载认证契约的
+# `request()` 此前一行测试都写不了——它困在带 JSX 的入口文件里，
+# `node --test` 只能直接 import 纯模块。
+#
+# 抽到 lib/ 之后可测了。门禁的作用是防止它悄悄长回入口文件。
+import re
+from pathlib import Path
+
+fe = ROOT / 'frontend' / 'src'
+app_jsx = (fe / 'App.jsx').read_text(encoding='utf-8')
+lib = fe / 'lib'
+
+# 1) 请求层必须在 lib/，且在 App.jsx 里不得再有同名定义
+client = lib / 'client.js'
+assert client.exists(), \
+    '请求层不在 frontend/src/lib/client.js —— 它得能被 node --test 直接 import'
+for name in ('request', 'useApi', 'normalizeList', 'toastMessage', 'copyText',
+             'downloadText', 'useLocalSettings'):
+    assert not re.search(rf'^(?:async )?function {name}\(', app_jsx, flags=re.M), \
+        f'{name}() 又长回 App.jsx 了——带 JSX 的入口文件没法被 node --test 覆盖'
+    assert re.search(rf'\b{name}\b', app_jsx), \
+        f'{name} 从 App.jsx 里消失了，但也没见新的定义处——多半是删漏了'
+
+# 2) 静态数据同理
+assert (lib / 'constants.js').exists(), '静态数据段未抽到 lib/constants.js'
+
+# 3) 认证契约必须被断言覆盖——这三条是被打错过两次的地方
+client_test = (lib / 'client.test.js').read_text(encoding='utf-8') if (lib / 'client.test.js').exists() else ''
+assert client_test, '没有 client.test.js —— request() 承载认证契约，必须有测试'
+for must in ("Authorization", "credentialKind", "401", "403"):
+    assert must in client_test, f'client.test.js 未覆盖「{must}」相关行为'
+# 明确要求钉住那两次打错的地方
+assert 'X-NetMind-Admin' in client_test, \
+    '未断言「不自造 X-NetMind-Admin 头」——那正是第一次打错的地方'
+assert re.search(r'没有默认凭据|凭空', client_test), \
+    '未断言「取不到凭据时不兜底」——那正是第二次打错的地方（写死的默认凭据）'
+
+# 4) 抽出去的模块不得含 JSX（否则就又不能被 node --test 直接 import 了）
+for m in ('client.js', 'constants.js', 'api.js', 'auth.js', 'display.js'):
+    p = lib / m
+    if not p.exists():
+        continue
+    body = '\n'.join(l.split('//')[0] for l in p.read_text(encoding='utf-8').splitlines())
+    assert not re.search(r'return\s*<|=>\s*<', body), \
+        f'lib/{m} 里出现了 JSX——它就又不能被 node --test 直接 import 了'
+
+# 5) 前端测试脚本必须真的会跑到 lib 下的测试
+pkg = (ROOT / 'frontend' / 'package.json').read_text(encoding='utf-8')
+assert 'node --test' in pkg, 'package.json 的 test 脚本不是 node --test'
+assert 'lib' in pkg.split('"test"')[1][:120], 'test 脚本的 glob 没覆盖 src/lib'
+""",
+    ),
+    Gate(
         id='no-inert-credential-surface',
         desc='凭据接口不得看起来像能连设备；没有消费方时必须自述',
         on_fail='block',
