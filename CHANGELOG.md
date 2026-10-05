@@ -196,6 +196,23 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **门禁审计第二轮：审过的门禁里又抓到三条，另确认六条是实的**。
+  做法不变——给门禁注入它声称要防的那个回归，看会不会红。
+
+  | 门禁 | 注入的回归 | 结果 |
+  |---|---|---|
+  | `no-dead-local` | 函数体加一个从未使用的局部变量 | ✓ 抓到 |
+  | `no-dead-module` | 造一个零引用模块 | ✓ 抓到 |
+  | `deps-pinned-and-audited` | 把 `reportlab==5.0.1` 改成 `>=` | ✓ 抓到 |
+  | `system-status-is-measured` | `healthy` 恒真 / `driver` 忽略配置 / `model_online` 恒真 | ✓ 三条全抓到 |
+  | `frontend-is-production-served` | 镜像改回 `npm run dev` | ✓ 抓到 |
+  | `telemetry-not-guessed` | 没探针点时谎报 `source='real'` | ✓ 抓到 |
+
+  第一轮抓到的三条（`no-fake-healing` / `real-data-not-faked` /
+  `container-deploy-needs-token`）已加固；这两轮合计说明**门禁的断言数量
+  与它的防护能力无关**——`no-fake-healing` 有 9 条断言、却对「恒报成功」
+  这个它名字里最核心的性质完全失灵。判据只有一条：注入后会不会红。
+
 - **门禁审计：三条核心门禁「看似严实则松」**。做法是给每条门禁注入它声称要防的
   那个回归，看抓不抓得到——不是再去找新缺陷。抓到三条：
 
