@@ -2716,6 +2716,20 @@ assert errs == 0, f'压测出现 {errs} 类错误'
 assert d['data_intact'], '压测后数据文件损坏'
 leftover = d['temp_leftovers']
 assert leftover == 0, '压测后残留 %d 个临时文件' % leftover
+
+# 「零错误」在**什么都没压**的时候也成立。实测把报告里的 scenarios 换成空列表，
+# 整条门禁一路绿——它宣称「并发压测：零错误 + 数据不丢不坏」，实际一条请求都没
+# 验过。所以要核对真的按 workers × per_worker 发够了。
+assert d['scenarios'], '压测报告里一个场景都没有——「零错误」在这里是空话'
+_W, _P = 8, 8                      # 与上面 CLI 参数一致
+_want = _W * _P
+_totals = [int(x.get('total') or 0) for x in d['scenarios']]
+assert max(_totals) >= _want, (
+    f'最大的场景只发了 {max(_totals)} 条，少于 workers×per_worker={_want}——'
+    f'压测规模没跑够，「零错误」说明不了并发下的任何事。各场景实发: {_totals}')
+assert all(t > 0 for t in _totals), (
+    f'有场景实发 0 条却仍被算作「压过了」: {_totals}——'
+    f'那不是压测通过，是这一步根本没跑')
 """,
     ),
     Gate(

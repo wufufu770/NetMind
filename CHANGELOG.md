@@ -196,6 +196,16 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`load-test-no-loss` 在「什么都没压」时照样 PASS**。它只做
+  `sum(x['errors'] for x in d['scenarios'])`——`scenarios` 是空列表时这个和就是 0，
+  于是「零错误」在一次都没压的空转上也成立。实测把压测报告的 `scenarios` 换成
+  `[]`，整条门禁一路绿，而它宣称的是「并发压测：零错误 + 压完数据不丢不坏」。
+  现补三条：报告里至少得有一个场景、**最大的场景实发条数不得少于
+  workers×per_worker**（压测规模没跑够，「零错误」说明不了并发下的任何事）、
+  每个场景实发都必须 > 0（`total=0` 的场景不该被算作「压过了」）。
+  反例验证：报告报空会红、所有场景实发缩到 8 会红；只缩「混合」那一个不会——
+  写与混合场景本就只发 24 条，压满 64 的是读场景，判据取 max 才是对的
+
 - **`frontend-has-tests` 两处都是文本判断，都能绕过**。其一，检查「抽出的模块没有
   在 App.jsx 里留本地副本」只找 `function compactLabel` 这一种写法，于是把函数以内联
   `const compactLabel = ...` 搬回去照样 PASS——而这条检查的全部意义就是「抽出的模块
