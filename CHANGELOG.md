@@ -196,6 +196,18 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **只读身份的前端只拦住了 1/41 个写操作**。诚实表声称「面板提前告知，而不是让
+  只读用户点进去撞 403」——横幅确实弹了，但全站 41 个写操作里只有「触发自愈」
+  一个有按钮级守卫，其余 40 个照点不误、照样吃服务端 403。**承诺没兑现。**
+  修法不是在 40 处各加一遍守卫（41 处一定会漏，新增操作时同样会漏），而是把
+  闸门放进 `client.request()`：「只读身份不许写」是**一条规则**，不是某个按钮的
+  属性。覆盖率 1/41 → 41/41，将来新增写操作自动被覆盖。
+  补 5 个用例 + 门禁 `readonly-ui-blocks-every-write`（三类反例均已证伪：
+  从 request() 拿掉闸门 / 闸门条件永假 / WRITE_METHODS 清空）
+
+- **`applyAuthMode` 与 React 的 `setAuthMode` 撞名**，本地 state setter 把导入
+  遮蔽了，client 模块根本拿不到 authMode——闸门看着接上了，实际从不生效。
+  改名 `applyAuthMode` 后才真的通
 - **`diagnose --live` 对任何非 22 端口的设备完全不可用**。`_collect_live` 有
   `ssh_port: int = 22` 形参，而 `diagnose()` **从不传它**——无论
   `NETMIND_SSH_PORT` 设成什么，采集都打 22 端口。实测：把实验台设备映射到

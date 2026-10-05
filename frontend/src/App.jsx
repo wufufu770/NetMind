@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { compactLabel, displayToolName, executionLabel, localizeJsonText } from './lib/format.js';
 import { wsUrl as wsPath } from './lib/api.js';
-import { API, copyText, downloadText, normalizeList, request, toastMessage, useApi, useLocalSettings }
+import { API, applyAuthMode, copyText, downloadText, normalizeList, request, toastMessage, useApi, useLocalSettings }
   from './lib/client.js';
 import { fallbackModelPresets, fontChoices, issueCodeLabels, sampleIntents, statusLabels, themePresets }
   from './lib/constants.js';
@@ -90,6 +90,8 @@ function Shell() {
       setHealth(data);
       // auth_mode 是服务端中间件判定的真实档位，不靠前端猜
       setAuthMode(data.auth_mode || 'unknown');
+      // client 模块需要自己那份，才能在发请求前拦下写操作（React state 传不进去）
+      applyAuthMode(data.auth_mode);
       toastMessage(setToast, data.healthy ? 'success' : 'warn', data.healthy ? '全网健康检查通过' : '检测到网络告警');
     } catch (err) {
       toastMessage(setToast, 'error', `健康检查失败：${err.message}`);

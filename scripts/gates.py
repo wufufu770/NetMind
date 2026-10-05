@@ -65,6 +65,57 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='readonly-ui-blocks-every-write',
+        desc='只读身份下全部写请求在浏览器侧被拦（闸门集中在 request()，不靠逐个按钮守卫）',
+        on_fail='block',
+        check=r"""
+# 后端已全站枚举过（`readonly-cannot-write-anything`），但前端这一半没验：
+# 诚实表声称「面板提前告知，而不是让只读用户点进去撞 403」。实测**这句话不成立**
+# ——全站 41 个写操作里只有 1 个（触发自愈）有按钮级守卫，其余 40 个照点不误，
+# 照样吃服务端 403。横幅弹了，但承诺没兑现。
+#
+# 修法不是给 40 处各加一遍守卫（41 处一定会漏，新增操作时同样会漏），
+# 而是把闸门放进 `client.request()`——「只读身份不许写」是**一条规则**，
+# 不是某个按钮的属性。覆盖率 1/41 → 41/41，且将来新增的写操作自动被覆盖。
+import json as _json
+import subprocess as _sp
+import sys as _sys
+# 探针是 **JavaScript**（用 node 跑）。第一版写成了 Python 的 `import sys, os`，
+# 被 node 当成语法错误 —— 门禁如实报了探针失败而不是放行，这点是对的。
+_lines = [
+    "const m = await import('./frontend/src/lib/client.js');",
+    "const out = {};",
+    # 键名里写清是「拦下」还是「放行」，避免第一版那种
+    # 探针算 true=被拦、断言却比 is None 的对不上。
+    # （这些是**列表元素**，得是字符串；写成裸 // 行会变成 Python 语句。）
+    "m.applyAuthMode('readonly-token');",
+    "out.readonly_write_blocked = !!m.readonlyWriteBlock('POST');",
+    "out.readonly_read_allowed  =  m.readonlyWriteBlock('GET') === null;",
+    "m.applyAuthMode('token');",
+    "out.admin_write_allowed   =  m.readonlyWriteBlock('POST') === null;",
+    "m.applyAuthMode('unknown');",
+    "out.unknown_write_allowed =  m.readonlyWriteBlock('POST') === null;",
+    "process.stdout.write(JSON.stringify(out));",
+]
+_r = _sp.run(['node', '--input-type=module', '-e', chr(10).join(_lines)],
+             cwd=ROOT,
+             capture_output=True, text=True, timeout=120)
+assert _r.returncode == 0, f'探针跑不起来: {_r.stderr[-300:]}'
+_d = _json.loads(_r.stdout.strip().splitlines()[-1])
+assert _d['readonly_write_blocked'] is True, '只读身份的写请求没有被拦下'
+assert _d['readonly_read_allowed'] is True, '只读身份的读请求被误拦了'
+assert _d['admin_write_allowed'] is True, '管理员的写请求被拦了——闸门过宽'
+assert _d['unknown_write_allowed'] is True, '身份未知时不该乱拦——那会把管理员也挡在外面'
+
+# 闸门必须真的在 request() 里，而不是靠调用方记得加
+_client = (ROOT / 'frontend' / 'src' / 'lib' / 'client.js').read_text(encoding='utf-8')
+assert 'readonlyWriteBlock(options.method)' in _client, \
+    '闸门不在 request() 里——41 处调用方靠自觉，早晚会漏'
+_app = (ROOT / 'frontend' / 'src' / 'App.jsx').read_text(encoding='utf-8')
+assert 'applyAuthMode(' in _app, 'App.jsx 没把 authMode 告诉 client 模块——闸门永远不生效'
+""",
+    ),
+    Gate(
         id='readonly-cannot-write-anything',
         desc='只读凭据必须对**每一个**写方法端点返回 403（全站枚举，不抽样）',
         on_fail='block',

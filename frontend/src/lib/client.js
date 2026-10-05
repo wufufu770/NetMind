@@ -27,6 +27,14 @@ function normalizeList(data) {
 }
 
 async function request(path, options = {}) {
+  // 只读身份的发写请求在**浏览器侧**就拦下，不发往服务端
+  const _blocked = readonlyWriteBlock(options.method);
+  if (_blocked) {
+    const _e = new Error(_blocked);
+    _e.status = 'blocked-client-side';
+    _e.blockedClientSide = true;
+    throw _e;
+  }
   const headers = { ...(options.headers || {}) };
   // 认证走 `Authorization: Bearer`——后端只认这个。此前发的是 `X-NetMind-Admin`
   // 自定义头，后端根本不读，于是配了 NETMIND_ADMIN_TOKEN 之后面板全线 401。
@@ -136,3 +144,35 @@ export { useLocalSettings };
 export { toastMessage };
 export { copyText };
 export { downloadText };
+
+/** 只读身份的写请求闸门。
+ *
+ * 此前只在「触发自愈」一个操作上做了按钮级守卫——全站 41 个写操作里
+ * **只有 1 个被拦**。诚实表声称「面板提前告知，而不是让只读用户点进去撞 403」，
+ * 实际是：横幅会弹，但其余 40 个按钮照点不误，照样吃服务端 403。
+ *
+ * 拦在这里（而不是 41 处各写一遍）有两个理由：
+ *   ① 41 处一定会漏——漏一处就等于承诺不成立，新增操作时同样会漏
+ *   ② 「只读身份不许写」是**一条规则**，不是某个按钮的属性
+ * 将来新增任何写操作都自动被覆盖，不需要记得加守卫。
+ */
+let _authMode = 'unknown';
+
+export function applyAuthMode(mode) {
+  _authMode = String(mode || 'unknown');
+}
+
+export function clientAuthMode() {
+  return _authMode;
+}
+
+const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
+
+/** 只读身份 + 写方法 ⇒ 不该发出去。返回字符串表示拒绝理由，null 表示放行。 */
+export function readonlyWriteBlock(method) {
+  if (_authMode !== 'readonly-token') return null;
+  const m = String(method || 'GET').toUpperCase();
+  if (!WRITE_METHODS.includes(m)) return null;
+  return `当前是只读身份（auth_mode=${_authMode}），${m} 请求已在浏览器侧拦下，未发往服务端。`
+    + '读操作不受限；下发与变更类操作需要管理员凭据（NETMIND_ADMIN_TOKEN）。';
+}
