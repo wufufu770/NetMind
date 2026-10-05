@@ -187,6 +187,21 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **安全审计在从未真正检查过的设备上报告「通过」**。巡检项是 **OpenWrt 专用**的
+  （`uci` / `ubus` / `dropbear`），却对着任何设备跑。实测一台 Alpine 容器：
+  这些命令全都不存在，shell 回一行 `-bash: uci: command not found`，而解析器把
+  **这行错误文本当成了设置值**——`PasswordAuth` 不在 {on,1} 里，于是判成 ok。
+  结果：六项里四项报「通过」，而这四项**从未被检查过**；同时防火墙那项因为同样
+  的原因误报了一个「发现风险项」。**这是安全工具最危险的失败模式**：使用者据此
+  以为设备是安全的。现两层修法：① 读不到（空/command not found/exec-error）时
+  任何解析都不可信 → 报 `unknown` 并把真实失败原因写进证据；
+  ② 有任何一项没检查，结论就不能是「基线通过」——新增
+  「巡检未完成（部分项目无法检查）」这个结论档。同一台 Alpine 设备修后：
+  4 项 unknown、1 项 info、仅「管理面监听端口」是真的查了（Alpine 有 `ss`）仍 ok。
+  补 11 个用例 + 门禁 `audit-unchecked-is-not-passed`（反例：把 unknown 改回 ok
+  → 抓到）。顺带更新既有测试：summary 现在还统计 unknown/error/info，
+  「读不到」与「都查了」在汇总里必须长得不一样
+
 - **`rich.html` 把每个空行渲染成一个空的 `<h2></h2>`**。第一版是一行三元表达式
   `… if line and not line.startswith('#') else '<h2>…</h2>'`——空行也落进 else
   分支，于是 markdown 每节之间的空行各变成一个空标题，**看起来像报告缺内容**。

@@ -24,9 +24,59 @@ def _assert_readonly(commands: list[str]) -> None:
             raise ReadonlyViolation(f'非只读命令被拒绝: {c}')
 
 
+
+# 巡检项是 **OpenWrt 专用**的（uci / ubus / dropbear 都是 OpenWrt 的东西）。
+# 此前它们对着任何设备跑：Alpine 上 `uci` 不存在，shell 回一行
+# `-bash: uci: command not found`，而解析器把**这行错误文本当成了设置值**，
+# 于是判成「PasswordAuth 不在 {on,1} 里 → 安全」。实测一台 Alpine 设备上，
+# SSH 口令、UPnP、无线加密三项全部报 ok —— **安全审计在没检查过的设备上
+# 报告全部通过**，这是最危险的失败模式：使用者据此以为设备是安全的。
+#
+# 修法分两层：
+#   ① 先识别设备系统，只跑适用的检查；不适用的报 `unknown`（不是 ok）
+#   ② 命令输出本身失败（command not found / 空 / exec-error）时，
+#     任何解析结果都不可信 → 报 unknown，并把失败原因写进证据
+SHELL_ERROR_RE = re.compile(
+    r'(command not found|not found|No such file|Permission denied|'
+    r'<exec-error|not installed|无法执行)', re.I)
+
+
+def _usable(output: str | None) -> bool:
+    """输出能不能当作实测值。空或 shell 报错都不行。"""
+    v = (output or '').strip()
+    return bool(v) and not SHELL_ERROR_RE.search(v)
+
+
+def _first_usable(out: dict, keys: tuple[str, ...]) -> tuple[str, bool]:
+    for k in keys:
+        if _usable(out.get(k)):
+            return out[k].strip(), True
+    # 全都不可用：把第一条的真实内容当作「为什么不可用」的证据
+    for k in keys:
+        if (out.get(k) or '').strip():
+            return (out.get(k) or '').strip()[:80], False
+    return '', False
+
+
+def detect_platform(out: dict) -> str:
+    """粗判设备系统。只认得 OpenWrt 就说 OpenWrt，认不出就说 unknown。"""
+    if _usable(out.get('cat /etc/openwrt_release')) or \
+            re.search(r'"distribution"\s*:\s*"OpenWrt', out.get('ubus call system board', '') or ''):
+        return 'openwrt'
+    if _usable(out.get('ubus call system board')):
+        return 'openwrt'
+    return 'unknown'
+
+
+def _unknown(chk_id: str, title: str, why: str) -> dict:
+    """「没查成」不是「查过了没问题」。"""
+    return {'id': chk_id, 'title': title, 'status': 'unknown',
+            'severity': 'unknown', 'evidence': f'未检查：{why}'}
+
+
 def _eval_firmware(out: dict) -> dict:
-    board = out.get('ubus call system board', '') or ''
-    release = out.get('cat /etc/openwrt_release', '') or ''
+    board, _ = _first_usable(out, ('ubus call system board',))
+    release, _ = _first_usable(out, ('cat /etc/openwrt_release',))
     text = board + release
     version = ''
     m = re.search(r'(?:version|DISTRIB_RELEASE)["\'=:\s]+([0-9][0-9.\-a-zA-Z]*)', text)
@@ -38,23 +88,37 @@ def _eval_firmware(out: dict) -> dict:
 
 
 def _eval_password_auth(out: dict) -> dict:
-    v = (out.get('uci -q get dropbear.@dropbear[0].PasswordAuth', '') or '').strip()
+    v, usable = _first_usable(out, ('uci -q get dropbear.@dropbear[0].PasswordAuth',))
+    if not usable:
+        return _unknown('ssh_password_auth', 'SSH 口令登录状态',
+                        f'读不到 dropbear 配置（{v or "命令无输出"}）——'
+                        f'该设备可能不是 OpenWrt，或未安装 dropbear。'
+                        f'**不判为安全**：没读到不等于没问题')
     root_ok = 'on' in v.lower() or v == '1'
     return {'id': 'ssh_password_auth', 'title': 'SSH 口令登录状态',
             'status': 'warn' if root_ok else 'ok',
-            'evidence': f'PasswordAuth={v or "未配置"}；建议仅密钥登录' if root_ok else f'PasswordAuth={v or "未配置"}'}
+            'evidence': f'PasswordAuth={v}；建议仅密钥登录' if root_ok else f'PasswordAuth={v}'}
 
 
 def _eval_upnp(out: dict) -> dict:
-    v = (out.get('uci -q get upnpd.config.enabled', '') or '').strip()
+    v, usable = _first_usable(out, ('uci -q get upnpd.config.enabled',))
+    if not usable:
+        return _unknown('upnp', 'UPnP 状态',
+                        f'读不到 upnpd 配置（{v or "命令无输出"}）——'
+                        f'该设备可能不是 OpenWrt，或未安装 upnpd。**不判为「未开启」**')
     enabled = v == '1'
     return {'id': 'upnp', 'title': 'UPnP 状态',
             'status': 'warn' if enabled else 'ok',
-            'evidence': f'upnpd.enabled={v or "0/未安装"}' + ('；UPnP 会自动打洞，暴露内网服务' if enabled else '')}
+            'evidence': f'upnpd.enabled={v}' + ('；UPnP 会自动打洞，暴露内网服务' if enabled else '')}
 
 
 def _eval_firewall(out: dict) -> dict:
-    rules = out.get('nft list ruleset | head -40', '') or out.get('iptables -L -n | head -40', '') or ''
+    rules, usable = _first_usable(out, ('nft list ruleset | head -40',
+                                       'iptables -L -n | head -40'))
+    if not usable:
+        return _unknown('firewall_rules', '防火墙规则存在性',
+                        f'读不到规则集（{rules or "两条命令都无输出"}）——'
+                        f'可能设备未启用 nft/iptables，**不判为「规则缺失」也不判为「正常」**')
     has_rules = bool(re.search(r'(chain \w+|Chain \w+)', rules)) and len(rules.strip().splitlines()) > 3
     return {'id': 'firewall_rules', 'title': '防火墙规则存在性',
             'status': 'warn' if not has_rules else 'ok',
@@ -62,7 +126,10 @@ def _eval_firewall(out: dict) -> dict:
 
 
 def _eval_listening_ports(out: dict) -> dict:
-    ss = out.get('ss -tln', '') or out.get('netstat -tln', '') or ''
+    ss, usable = _first_usable(out, ('ss -tln', 'netstat -tln'))
+    if not usable:
+        return _unknown('listening_ports', '管理面监听端口',
+                        f'读不到监听列表（{ss or "ss/netstat 都无输出"}）——**未检查**')
     risky = [p for p in ('23', '8080', ':80 ') if re.search(rf'[:.]({p.strip()})\s', ss)]
     telnet = ':23 ' in ss
     return {'id': 'listening_ports', 'title': '管理面监听端口',
@@ -71,11 +138,18 @@ def _eval_listening_ports(out: dict) -> dict:
 
 
 def _eval_wireless(out: dict) -> dict:
-    w = out.get('uci -q show wireless', '') or ''
+    w, usable = _first_usable(out, ('uci -q show wireless',))
+    if not usable:
+        return _unknown('wireless_encryption', '无线加密强度',
+                        f'读不到无线配置（{w or "命令无输出"}）——'
+                        f'该设备可能没有无线或不是 OpenWrt。**不判为「全部已加密」**')
     open_ifaces = re.findall(r"\.encryption='?none", w)
+    if not re.search(r'wireless\.', w):
+        return _unknown('wireless_encryption', '无线加密强度',
+                        '该设备没有无线配置——无线这项无从检查')
     return {'id': 'wireless_encryption', 'title': '无线加密强度',
             'status': 'fail' if open_ifaces else 'ok',
-            'evidence': f'{len(open_ifaces)} 个开放(无加密)无线接口' if open_ifaces else '全部无线接口已启用加密'}
+            'evidence': f'{len(open_ifaces)} 个开放(无加密)无线接口' if open_ifaces else f'{len(re.findall(chr(46)+"encryption=", w))} 个无线接口均已启用加密'}
 
 
 CHECKS = [
@@ -161,7 +235,9 @@ def run_audit(mode: str | None = None, note: str | None = None) -> dict:
         r['commands'] = chk['commands']
         results.append(r)
 
-    counts = {s: sum(1 for r in results if r['status'] == s) for s in ('ok', 'warn', 'fail')}
+    counts = {st: sum(1 for r in results if r['status'] == st)
+             for st in ('ok', 'warn', 'fail', 'unknown', 'error', 'info')}
+    unchecked = counts['unknown'] + counts['error']
     report = {
         'audit_id': f"audit-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
         'mode': used_mode,
@@ -169,22 +245,28 @@ def run_audit(mode: str | None = None, note: str | None = None) -> dict:
         'note': note,
         'checks': results,
         'summary': counts,
-        'verdict': '发现风险项' if (counts['warn'] or counts['fail']) else '基线通过',
+        # 有任何一项没查成，结论就不能是「基线通过」——
+        # 否则「因为命令不存在所以什么都没查」会被读成「都查过了、没问题」。
+        'verdict': ('巡检未完成（部分项目无法检查）' if unchecked and not (counts['warn'] or counts['fail'])
+                   else '发现风险项' if (counts['warn'] or counts['fail'])
+                   else '基线通过'),
     }
     STORE.log('audit', f"{report['audit_id']} mode={used_mode} verdict={report['verdict']} "
-                       f"(ok={counts['ok']} warn={counts['warn']} fail={counts['fail']})",
-              'warn' if (counts['warn'] or counts['fail']) else 'info')
+                       f"(ok={counts['ok']} warn={counts['warn']} fail={counts['fail']} "
+                       f"unknown={counts['unknown']} error={counts['error']})",
+              'warn' if (counts['warn'] or counts['fail'] or unchecked) else 'info')
     return report
 
 
 def render_markdown(report: dict) -> str:
     lines = [f"# NetMind 只读巡检报告 — {report['audit_id']}",
              f"- 目标: `{report['target']}`　模式: **{report['mode']}**　结论: **{report['verdict']}**",
-             f"- 统计: ✅ {report['summary']['ok']}　⚠️ {report['summary']['warn']}　⛔ {report['summary']['fail']}", '']
+             f"- 统计: ✅ {report['summary']['ok']}　⚠️ {report['summary']['warn']}　"
+             f"⛔ {report['summary']['fail']}　❓未检查 {report['summary'].get('unknown', 0)}", '']
     if report['mode'] == 'simulated':
         lines.append('> ⚠️ 本报告为**模拟数据**演练（未连接真实设备），用于演示与验证流程。')
         lines.append('')
-    badge = {'ok': '✅', 'warn': '⚠️', 'fail': '⛔', 'error': '❓', 'info': 'ℹ️'}
+    badge = {'ok': '✅', 'warn': '⚠️', 'fail': '⛔', 'error': '❓', 'unknown': '❔', 'info': 'ℹ️'}
     for r in report['checks']:
         lines.append(f"## {badge.get(r['status'], '•')} {r['title']} [{r['status']}]")
         lines.append(f"- 证据: {r.get('evidence', '-')}")

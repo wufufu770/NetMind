@@ -10,7 +10,9 @@ def test_simulated_run_labeled_and_structured():
     r = run_audit()
     assert r['mode'] == 'simulated'
     assert '模拟数据' in render_markdown(r)
-    assert set(r['summary']) == {'ok', 'warn', 'fail'}
+    # summary 现在还统计 unknown / error / info：读不到数据的项必须能被看见，
+    # 否则「因为命令不存在所以什么都没查」与「都查了、没问题」在汇总里长得一样。
+    assert {'ok', 'warn', 'fail', 'unknown'} <= set(r['summary']), r['summary']
     assert len(r['checks']) == 6
     ids = {c['id'] for c in r['checks']}
     assert {'firmware', 'upnp', 'wireless_encryption', 'listening_ports'} <= ids

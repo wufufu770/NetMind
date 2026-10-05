@@ -65,6 +65,73 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='audit-unchecked-is-not-passed',
+        desc='巡检读不到数据时必须报 unknown —— 安全审计不得在没检查过的设备上判通过',
+        on_fail='block',
+        check=r"""
+# 巡检项是 **OpenWrt 专用**的（uci / ubus / dropbear 都是 OpenWrt 的东西），
+# 此前却对着任何设备跑。实测一台 Alpine 容器：uci / nft / ubus 全都不存在，
+# shell 回一行 `-bash: uci: command not found`，而解析器把**这行错误文本当成了
+# 设置值** —— `PasswordAuth` 不在 {on,1} 里，于是判成 ok。
+#
+# 结果：一台从未被真正检查过的设备，六项里四项报「通过」。**这是安全工具
+# 最危险的失败模式**——使用者据此以为设备是安全的。
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+try:
+    from app.core import audit as A
+
+    ALPINE = {
+        'ubus call system board': '-bash: ubus: command not found',
+        'cat /etc/openwrt_release': '-bash: cat: /etc/openwrt_release: No such file or directory',
+        'uname -a': 'Linux client2 5.15.167 x86_64 GNU/Linux',
+        'uci -q get dropbear.@dropbear[0].PasswordAuth': '-bash: uci: command not found',
+        'uci -q get upnpd.config.enabled': '-bash: uci: command not found',
+        'nft list ruleset | head -40': '-bash: nft: command not found',
+        'iptables -L -n | head -40': '-bash: iptables: command not found',
+        'ss -tln': 'tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*',
+        'netstat -tln': '-bash: netstat: command not found',
+        'uci -q show wireless': '-bash: uci: command not found',
+    }
+    OPENWRT = {
+        'ubus call system board': '{"release":{"distribution":"OpenWrt","version":"23.05.5"}}',
+        'cat /etc/openwrt_release': "DISTRIB_RELEASE='23.05.5'",
+        'uname -a': 'Linux HomeGW 5.15.167 aarch64',
+        'uci -q get dropbear.@dropbear[0].PasswordAuth': 'on',
+        'uci -q get upnpd.config.enabled': '0',
+        'nft list ruleset | head -40': 'chain input {\ntype filter hook input; policy drop;\n}',
+        'ss -tln': 'tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*',
+        'uci -q show wireless': "wireless.default_radio0.encryption='psk2'",
+    }
+
+    _by = {}
+    for _c in A.CHECKS:
+        _by[_c['id']] = _c['eval']
+
+    # ① 读不到就是 unknown，不是 ok
+    for _cid in ('ssh_password_auth', 'upnp', 'wireless_encryption', 'firewall_rules'):
+        _r = _by[_cid](ALPINE)
+        assert _r['status'] == 'unknown', \
+            f'{_cid} 在读不到数据时判成 {_r["status"]}——shell 报错被当成了实测值'
+        assert '未检查' in _r['evidence'], _r['evidence']
+        assert 'PasswordAuth=-bash' not in _r['evidence'], '报错文本仍被当成配置值展示'
+
+    # ② 真设备仍要给真判断——不能因为修了「读不到」就一片 unknown
+    assert _by['ssh_password_auth'](OPENWRT)['status'] == 'warn', 'OpenWrt 口令开着应报 warn'
+    assert _by['upnp'](OPENWRT)['status'] == 'ok'
+    assert '23.05.5' in _by['firmware'](OPENWRT)['evidence']
+
+    # ③ 结论层：有项目没检查就不能说「基线通过」
+    _results = [c['eval'](ALPINE) for c in A.CHECKS]
+    _counts = {st: sum(1 for x in _results if x['status'] == st)
+               for st in ('ok', 'warn', 'fail', 'unknown', 'error', 'info')}
+    _unchecked = _counts['unknown'] + _counts['error']
+    assert _unchecked >= 4, f'Alpine 上只有 {_unchecked} 项无法检查，判定逻辑可能被改弱'
+finally:
+    pass
+""",
+    ),
+    Gate(
         id='rich-html-has-no-empty-headings',
         desc='rich.html 不得渲染出空标题；标题层级要保留',
         on_fail='block',
