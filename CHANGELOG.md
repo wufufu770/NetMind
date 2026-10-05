@@ -196,6 +196,15 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **门禁审计第四轮：`healing-is-guarded` 在「缺处置原语时编一条命令」时照样 PASS**。
+  该门禁检查了「没配处置接口要拒绝」，却没检查「这个诊断压根没有处置原语时
+  也不能编一个」。而 `anomaly_traffic`（方向反）与 `config_error`（缺归属证明）
+  正是被刻意移出处置表的两个诊断——真把它们加回去，门禁看不见。
+  已补：`build()` 对这两类必须抛 `RemediationUnavailable`。
+  反例证伪时也踩了一次**无效证伪**：第一次注入写在 `spec = REMEDIATIONS.get(kind)`
+  **之前**，下一行立刻覆盖回 `None`，注入根本没生效而门禁当然照过——
+  **注入本身无效时，PASS 说明不了任何事**
+
 - **门禁审计第三轮：风险最高的三条「数据是真的」类门禁，逐条注入验证——全部是实的**。
   这几条声称的是最贵的性质，所以先审它们：
 

@@ -1798,6 +1798,27 @@ try:
     except heal_guard.HealingDisabled as e:
         assert heal_guard.IFACE_ENV in str(e), '拒绝时必须点名缺哪个配置项'
 
+    # 该诊断**没有**处置原语时，必须拒绝而不是编一条命令出来。
+    # 实测过：把 build() 改成「kind 不在 REMEDIATIONS 里就现编一条
+    # `tc qdisc del`」，本门禁照样 PASS——而那正是这个门禁名字要防的事。
+    # 现成的事实：`anomaly_traffic` 与 `config_error` 都被刻意移出了处置表
+    # （前者方向反：诊断是「带宽跌了」而处置是限速；后者需流表归属证明）。
+    from app.core.remediation import build as _build, RemediationUnavailable as _RU
+    from app.schemas import Diagnosis as _Dg
+    os.environ['NETMIND_HEAL_IFACE'] = 'eth0'
+    for _kind in ('anomaly_traffic', 'config_error'):
+        try:
+            _build(_Dg(type=_kind, confidence=0.9), iface='eth0', bridge='br0')
+            raise AssertionError(
+                f'{_kind} 没有处置原语却生成了命令——处置方向是反的或缺少归属证明，'
+                f'编一条出来就是在设备上乱动')
+        except _RU:
+            pass
+    del os.environ['NETMIND_HEAL_IFACE']
+
+    # 注：陌生诊断在 schema 层就构造不出来（Diagnosis.type 是 Literal 枚举），
+    # 所以「给不认识的诊断编动作」这条路已被类型系统堵死，无需再断言。
+
     # 2) 闭环里未配置时，HealingAgent 步骤不得记 success
     STORE.executions.clear(); STORE.telemetry.clear(); STORE.heal_attempts.clear()
     TELEMETRY.inject('congestion')
