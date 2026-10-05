@@ -1512,6 +1512,20 @@ assert not dupes, (
     f'[{released[0]}] 段里小节标题重复出现: {dupes}——'
     f'读者会以为发了 {len(heads)} 个不同类别，实际是同一类被拆碎了')
 
+# 空的小节也要拦。实测往 [0.2.0] 段里插一个「### Fixed」而底下什么都不写，
+# 本门禁照样 PASS——读者看到「有修东西」却找不到任何一条，那与没写等价，
+# 而在一个刻意保持节制的发布说明里，它比没写更让人误判这个版本改了什么。
+_empty_heads = []
+for _h in re.finditer(r'^### (.+)$', body, flags=re.M):
+    _tail = body[_h.end():]
+    _nxt = re.search(r'^### ', _tail, flags=re.M)
+    _chunk = _tail[:_nxt.start()] if _nxt else _tail
+    if not _chunk.strip():
+        _empty_heads.append(_h.group(1).strip())
+assert not _empty_heads, (
+    f'[{released[0]}] 段里有**空的小节**: {_empty_heads}——'
+    f'读者会以为这个版本改了这些东西，却一条都找不到。空小节请删掉。')
+
 # 每条已发布段都要能让人复核：至少要挂上入口文件或脚本
 assert re.search(r'`(scripts|backend|docs|tests)/', body), \
     f'[{released[0]}] 段里没有任何可复现的路径引用——规则 5 要求每条主张挂得上东西'
@@ -2790,6 +2804,35 @@ assert r.returncode == 0, f'based_on={sha} 不是仓库里存在的 commit'
 r2 = subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'HEAD'],
                     cwd=ROOT, capture_output=True)
 assert r2.returncode == 0, f'based_on={sha} 不是当前 HEAD 的祖先'
+
+# 2b) 不得指向 HEAD 本身。based_on 的含义是「状态所描述的那棵树」，
+#     而写入 based_on 的那次提交把状态文件本身也算进了那棵树——两者互相包含，
+#     正是本门禁要禁的那种自指。实测把 based_on 设成 HEAD 会一路通过：它是真实
+#     commit、是 HEAD 的祖先（自己是自己的祖先）、落后 0 个 commit 不算漂。
+#     而它描述的其实是**提交之前**的树，诚实的值永远该是 HEAD 的某个父提交。
+#
+#     比的是**提交身份**不是字符串：state.json 里存的是短 SHA（014ecd2），
+#     git rev-parse HEAD 是全量 40 位，直接比字符串永远不相等——第一版就栽在
+#     这里，等于写了一条死代码却以为自己加了防线。
+_resolved = subprocess.run(['git', 'rev-parse', sha + '^{commit}'], cwd=ROOT,
+                           capture_output=True, text=True).stdout.strip()
+_head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
+                       capture_output=True, text=True).stdout.strip()
+
+# 但 state.json 未提交时**必须放行**：loop.py round 就是在提交前把 based_on
+# 写成当时的 HEAD，此刻它等于 HEAD 是流程的正常状态，一提交就变成 HEAD~1。
+# 对着这个窗口报警，等于每轮都误报——门禁一旦开始误报，人就会开始忽略它。
+_st_dirty = bool(subprocess.run(['git', 'diff', '--name-only', '--',
+                                 '.netmind-loop/state.json'],
+                                cwd=ROOT, capture_output=True, text=True).stdout.strip())
+if _st_dirty:
+    # 未提交：只保证它仍是个真实 commit（前面的断言已覆盖），自指留到提交后再判
+    pass
+else:
+    assert _resolved != _head, (
+        f'based_on 指向 HEAD 本身（{sha[:8]}）——状态文件声称描述的就是它自己所在的'
+        f'那棵树，可它自己就在那棵树里。save() 在提交前跑，诚实的 based_on 只能是'
+        f'HEAD 的某个父提交')
 
 # 3) 不得漂太远：状态文件是给接手的人看的，差十几个 commit 就过期了
 n = int(subprocess.run(['git', 'rev-list', '--count', sha + '..HEAD'],
