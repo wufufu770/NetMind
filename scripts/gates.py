@@ -2823,6 +2823,69 @@ assert r.returncode != 0, '不存在的备份竟被接受了'
 """,
     ),
     Gate(
+        id='state-metrics-match-reality',
+        desc='状态文件里关于门禁的数字必须与 gates.py 实际一致（自己报的数字要真）',
+        on_fail='block',
+        check=r"""
+# `.netmind-loop/state.json` 是本项目自定的「真相源」。一个以「自己的数字必须
+# 诚实」为立身之本的工具，如果状态文件里的数字是假的，这套说法就站不住。
+#
+# 实测到的失真：顶层 gates_total=54（对）、metrics.gates_total=22（八轮前的旧值）、
+# st['gates'] 只有最早的 8 条（新增门禁从没被写进去过）。
+#
+# 根因不是笔误，是**记账逻辑被抄了两份**：`cmd_round` 只更新已有条目、从不追加，
+# 也不写 metrics 里那个同名字段；`cmd_metrics` 写计数却不同步列表。
+# 已提成 `record_gate_results()` / `sync_gate_membership()` 单一入口。
+# 这条门禁的作用是防止它再漂回去。
+import json
+import os
+import sys
+sys.path.insert(0, str(ROOT / 'scripts'))
+import gates as _self                                    # noqa: E402
+import loop as _loop                                     # noqa: E402
+
+_state = json.loads((ROOT / '.netmind-loop' / 'state.json').read_text(encoding='utf-8'))
+_real_total = len(_self.GATES)
+_real_ids = {g.id for g in _self.GATES}
+_m = _state.get('metrics', {})
+
+_top = _state.get('gates_total')
+assert _top == _real_total, \
+    f"顶层 gates_total={_top}，gates.py 实际 {_real_total} 条——两个数字对不上"
+assert _m.get('gates_total') == _real_total, (
+    f"metrics.gates_total={_m.get('gates_total')}，实际 {_real_total} 条。"
+    f"顶层对了不代表 metrics 对——历史上正是只写顶层导致这里长期停在旧值")
+
+_list = _state.get('gates') or []
+assert len(_list) == _real_total, (
+    f"st['gates'] 只列了 {len(_list)} 条，实际 {_real_total} 条。"
+    f"新增门禁必须进列表，否则这份「真相源」对它们一无所知")
+_ids = {g['id'] for g in _list}
+assert _ids == _real_ids, (
+    f"st['gates'] 与 gates.py 对不上："
+    f"多出 {sorted(_ids - _real_ids)}、缺少 {sorted(_real_ids - _ids)}")
+
+_passed = _m.get('gates_passed')
+assert isinstance(_passed, int) and 0 <= _passed <= _real_total, \
+    f'metrics.gates_passed={_passed} 不在 [0, {_real_total}] 内'
+for g in _list:
+    assert g.get('status') in ('pass', 'fail', 'error', 'skip', 'not-run'), \
+        f"门禁 {g['id']} 的状态 {g.get('status')!r} 不是合法取值"
+    assert g.get('on_fail') in ('block', 'autofix', 'rollback', 'warn'), \
+        f"门禁 {g['id']} 的退路 {g.get('on_fail')!r} 与 gates.py 不符"
+
+# 单一记账入口必须真的存在，且只此一处——复制粘贴式记账的代价不是写错一行，
+# 是下次加门禁时你不知道该改哪一处
+_src = (ROOT / 'scripts' / 'loop.py').read_text(encoding='utf-8')
+assert 'def record_gate_results' in _src, 'loop.py 缺单一记账入口 record_gate_results()'
+assert 'def sync_gate_membership' in _src, 'loop.py 缺 sync_gate_membership()'
+_writers = _src.count("st['metrics']['gates_total']")
+assert _writers <= 2, (
+    f"loop.py 里有 {_writers} 处写 metrics.gates_total——记账逻辑又散开了。"
+    f'新增门禁时你不知道该改哪一处，这就是它当初漂掉的原因')
+""",
+    ),
+    Gate(
         id='state-based-on-is-honest',
         desc='状态文件不得用自指字段冒充当前 HEAD；based_on 必须是真实存在的祖先且不漂太远',
         on_fail='block',

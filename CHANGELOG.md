@@ -625,6 +625,18 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
   后者是凭据有效但角色不够，提示里会分别告诉用户该配什么、该找谁申请
 
 
+- **状态文件里关于门禁的数字全是过期的**。`.netmind-loop/state.json` 自称是本项目
+  的「真相源」，而它记的是：顶层 `gates_total=54`（对）、`metrics.gates_total=22`
+  （八轮前的旧值）、`gates` 列表只有最早的 8 条——这期间新增的门禁从没被写进去过。
+  一个以「自己的数字必须诚实」为立身之本的工具，真相源里的数字是假的，
+  而**没有任何门禁在管这件事**。
+  根因不是笔误：记账逻辑被抄了两份——`cmd_round` 只更新已有条目、从不追加，也不写
+  `metrics` 里那个同名字段；`cmd_metrics` 写计数却不同步列表。已提成
+  `record_gate_results()` / `sync_gate_membership()` 单一入口，两个命令共用。
+  新增门禁 `state-metrics-match-reality` 盯住它（已注入 `gates_total=22` 与
+  列表截断到 8 条两种症状验证，均被抓）。
+  **复制粘贴式记账的真正代价不是写错一行，是下次加门禁时你不知道该改哪一处**
+
 ## [0.2.0] - 2026-10-03
 
 这一版的重点不是加功能，是**把「说自己能做」的地方逐条改成真的**。下面每条

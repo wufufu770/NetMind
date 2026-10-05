@@ -199,10 +199,12 @@ def cmd_gates(st: dict) -> int:
 
 def cmd_metrics(st: dict) -> int:
     st['metrics'].update(compute_metrics())
-    # 写进 metrics 而不是顶层：打印的是 st['metrics']，写顶层的话
-    # metrics.gates_total 会永远停在上一次的值（曾长期显示 15 而实际 16）。
+    # 两个字段都写。只写顶层会让 metrics 停在上一次的值（曾长期显示 15 而实际 16），
+    # 只写 metrics 则顶层那份给旧读取方的兼容字段是旧的——顶层对不代表 metrics 对。
     st['metrics']['gates_total'] = len(gates_mod.GATES)
-    st['gates_total'] = len(gates_mod.GATES)          # 顶层保留一份，兼容旧读取方
+    st['gates_total'] = len(gates_mod.GATES)
+    # 成员关系不需要跑门禁也知道；状态保持原样（没跑过就是没跑过）
+    sync_gate_membership(st)
     print('\n  指标已刷新：')
     for k, v in st['metrics'].items():
         print(f'    {k:<20} {v}')
@@ -380,6 +382,58 @@ def promote_next(st: dict) -> bool:
     return True
 
 
+def sync_gate_membership(st: dict) -> None:
+    """让 `st['gates']` 的成员与 gates.py 里的实际门禁一致。
+
+    成员关系是**不跑门禁也知道**的：gates.py 里有什么，这里就该有什么。
+    状态不是——只有真跑过才有，所以新进来的门禁先记 'not-run'，
+    宁可显式写「没跑过」，也别让它看起来跑过且通过了。
+    """
+    by_id = {g.id: g for g in gates_mod.GATES}
+    known = {g['id']: g for g in st['gates']}
+    merged = []
+    for gid, g in by_id.items():
+        prev = known.get(gid)
+        merged.append({
+            'id': gid,
+            'on_fail': g.on_fail,
+            'status': (prev or {}).get('status', 'not-run'),
+        })
+    st['gates'] = merged
+
+
+def record_gate_results(st: dict, results: list) -> None:
+    """把一轮门禁结果记进 state。**唯一**的记账入口。
+
+    此前这段逻辑在 `cmd_round` 里抄了一份、`cmd_metrics` 里又抄了一份，
+    两份各自漂移：round 那份只更新顶层 `gates_total`（漏了 metrics 里的同一个
+    字段），且只按 id 更新 `st['gates']` 里**已有**的条目，从不追加新门禁。
+    结果状态文件长期长这样：顶层 gates_total=54（对）、
+    metrics.gates_total=22（八轮前的旧值）、st['gates'] 只有最早的 8 条。
+    一个以「自己的数字必须诚实」为立身之本的工具，状态文件里的数字是假的，
+    而没有任何门禁在管这件事。
+
+    复制粘贴式记账的真正代价不是写错一行，是**下次加门禁时你不知道该改哪一处**。
+    """
+    p, _total, _bad = gates_mod.summarize(results)
+    total = len(gates_mod.GATES)
+    # 两个字段都写。只写顶层会让 metrics 停在旧值——顶层那份是给旧读取方
+    # 的兼容字段，它对不代表 metrics 对。
+    st['gates_total'] = total
+    st['metrics']['gates_total'] = total
+    st['metrics']['gates_passed'] = p
+    st['metrics']['gates_warned'] = sum(
+        1 for r in results if r['status'] != 'pass' and r['on_fail'] == 'warn')
+    by_id = {r['id']: r for r in results}
+    sync_gate_membership(st)
+    for gid, r in by_id.items():
+        for g in st['gates']:
+            if g['id'] == gid:
+                g['status'] = r['status']
+                g['on_fail'] = r['on_fail']      # 退路也可能是后来改的
+                break
+
+
 def cmd_round(st: dict) -> int:
     if promote_next(st):
         st['phase'] = 'build'
@@ -392,14 +446,7 @@ def cmd_round(st: dict) -> int:
         if r['status'] in ('fail', 'error') and r['detail']:
             for line in r['detail'].splitlines()[:5]:
                 print(f'         {line}')
-    st['gates_total'] = len(gates_mod.GATES)
-    p, t, bad = gates_mod.summarize(results)
-    st['metrics']['gates_passed'] = p
-    st['metrics']['gates_warned'] = sum(1 for r in results if r['status'] != 'pass' and r['on_fail'] == 'warn')
-    for g in st['gates']:
-        match = next((r for r in results if r['id'] == g['id']), None)
-        if match:
-            g['status'] = match['status']
+    record_gate_results(st, results)
     st['phase'] = 'test'
 
     print('\n══ IMPROVE ══')
