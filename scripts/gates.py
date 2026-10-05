@@ -65,6 +65,56 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='diagnose-live-actually-tries',
+        desc='diagnose --live 必须真的用配置的端口去连，并如实区分「没请求」与「请求了没成功」',
+        on_fail='block',
+        check=r"""
+# 两个问题，都在实验台设备上实测确认过：
+#
+# ① **端口从不透传** —— `_collect_live` 有 `ssh_port: int = 22` 形参，而
+#    `diagnose()` 从不传它。无论 NETMIND_SSH_PORT 设成什么，采集都打 22 端口。
+#    实测：设备映射到 2222，采集前一律 `[]`（全部超时），修后采到 `['r2']`。
+#    **diagnose --live 对任何非 22 端口的设备完全不可用。**
+#
+# ② **「没请求」与「请求了但失败」混为一谈** —— 采集全失败时 findings 一律写
+#    "no device access requested"，而实况是访问请求过了、失败了。使用者会去
+#    查参数而不是查连接；逐节点的失败原因也被丢掉，只剩一句笼统的 notes。
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+import inspect as _insp
+try:
+    from app.diagnose import engine as E
+    from app.diagnose import checks as C
+
+    # ① 端口可传、且不传时读 env
+    assert 'ssh_port' in _insp.signature(E.diagnose).parameters, \
+        'diagnose() 没有 ssh_port 形参'
+    _src = _insp.getsource(E.diagnose)
+    assert 'NETMIND_SSH_PORT' in _src, \
+        '设了 NETMIND_SSH_PORT 却没读——设了不用是最坑的形态'
+    assert 'ssh_port=' in _src, '端口拿到了却没传给 _collect_live'
+
+    # ② 逐节点原因必须留进 notes
+    _orig = E._collect_live
+    E._collect_live = lambda p, h, u, pw, ssh_port=22: (None, ['r1: 超时', 'r2: 认证失败'])
+    try:
+        _r = E.diagnose('examples/clab-broken.yml', live=True,
+                        host_map={'r1': '1.1.1.1'}, ssh_user='u', ssh_password='p')
+    finally:
+        E._collect_live = _orig
+    _notes = ' '.join(_r.get('notes') or [])
+    assert 'r1' in _notes and '超时' in _notes, f'逐节点失败原因被丢掉: {_r.get("notes")}'
+
+    # ③ 措辞不得把「请求过」写成「没请求」
+    _skip = next((f for f in _r['findings'] if f['id'] == 'collection-skipped'), None)
+    assert _skip is not None, '没有 collection-skipped 这条 finding'
+    assert 'no device access requested' not in _skip['title'], (
+        f'明明请求过却说没请求: {_skip["title"]}')
+finally:
+    pass
+""",
+    ),
+    Gate(
         id='audit-unchecked-is-not-passed',
         desc='巡检读不到数据时必须报 unknown —— 安全审计不得在没检查过的设备上判通过',
         on_fail='block',

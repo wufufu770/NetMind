@@ -67,9 +67,21 @@ def run_checks(parsed: dict, graph, collected: dict | None=None) -> list[dict]:
                                  'title':f'Interface {name} is down on {node_id}',
                                  'detail':data['interfaces'][name].get('description') or ''})
     else:
-        findings.append({'id':'collection-skipped','severity':'info',
-                         'title':'Live collection skipped (no device access requested)',
-                         'detail':'Interface-level checks require --live with reachable nodes; this report validates topology structure only.'})
+        # 「没请求」与「请求了但失败」是两回事。此前一律写「no device access
+        # requested」—— 实测在实验台设备上 --live + --host 明明请求了、失败了
+        # （端口没透传），报告却说「没请求」，使用者会去查参数而不是查连接。
+        _attempted = bool(graph is not None)
+        findings.append({
+            'id': 'collection-skipped', 'severity': 'info',
+            'title': ('Live collection returned no data (device access was attempted)'
+                      if _attempted else
+                      'Live collection skipped (no device access requested)'),
+            'detail': ('Interfaces were queried but nothing came back — check the host map, '
+                       'SSH port and credentials; per-node reasons are in report.notes. '
+                       'This report validates topology structure only.'
+                       if _attempted else
+                       'Interface-level checks require --live with reachable nodes; '
+                       'this report validates topology structure only.')})
 
     severity_rank={'error':0,'warning':1,'info':2}
     findings.sort(key=lambda f:(severity_rank[f['severity']], f['id']))

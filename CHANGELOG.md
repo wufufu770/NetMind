@@ -187,6 +187,18 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`diagnose --live` 对任何非 22 端口的设备完全不可用**。`_collect_live` 有
+  `ssh_port: int = 22` 形参，而 `diagnose()` **从不传它**——无论
+  `NETMIND_SSH_PORT` 设成什么，采集都打 22 端口。实测：把实验台设备映射到
+  2222，采集前一律 `[]`（全部 TCP 超时），修后采到 `['r2']`（真机接口状态）。
+  **设了环境变量却不被使用，是最坑的形态**：使用者只会以为自己配错了
+- **`diagnose --live` 把「请求了但失败」写成「没请求」**。采集全失败时 findings
+  一律是 "no device access requested"，而实况是访问请求过了、失败了。
+  使用者会去查参数而不会去查连接。逐节点的失败原因（超时/认证失败/驱动不可用）
+  此前也被丢掉，只留一句笼统的 notes。现两者都保留，并区分
+  「没请求」与「请求了但没采到」两种措辞。补 4 个用例 + 门禁
+  `diagnose-live-actually-tries`（两个反例均已证伪）
+
 - **安全审计在从未真正检查过的设备上报告「通过」**。巡检项是 **OpenWrt 专用**的
   （`uci` / `ubus` / `dropbear`），却对着任何设备跑。实测一台 Alpine 容器：
   这些命令全都不存在，shell 回一行 `-bash: uci: command not found`，而解析器把

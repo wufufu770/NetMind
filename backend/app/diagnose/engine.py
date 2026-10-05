@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 
 from .clab import parse_clab, to_graph
@@ -49,16 +50,27 @@ def _collect_live(parsed: dict, host_map: dict[str,str], ssh_user: str, ssh_pass
     return (collected or None), errors
 
 def diagnose(path: str, live: bool=False, host_map: dict[str,str] | None=None,
-             ssh_user: str='', ssh_password: str='', llm: bool=False) -> dict:
+             ssh_user: str='', ssh_password: str='', llm: bool=False,
+             ssh_port: int | None=None) -> dict:
     text=Path(path).read_text(encoding='utf-8')
     parsed=parse_clab(text)
     graph=to_graph(parsed)
     collected=None
     notes=[]
     if live:
-        collected, errs=_collect_live(parsed, host_map or {}, ssh_user, ssh_password)
+        # ssh_port 必须传下去。此前 _collect_live 有 ssh_port=22 的默认参数，
+        # 而 diagnose() 从不传它 —— 于是 live 采集**只能连 22 端口**，
+        # 设了 NETMIND_SSH_PORT 也白设，采集必然失败。
+        _port = ssh_port if ssh_port is not None else int(
+            os.getenv('NETMIND_SSH_PORT', '22') or 22)
+        collected, errs=_collect_live(parsed, host_map or {}, ssh_user, ssh_password,
+                                      ssh_port=_port)
         if errs and not collected:
-            notes.append('live collection failed for all nodes; falling back to structure-only checks')
+            # 每节点的失败原因必须留着。只写「都失败了」等于让人自己猜。
+            notes.append(
+                f'live collection failed for all nodes (port={_port}); '
+                f'falling back to structure-only checks. 逐节点原因: '
+                + ' | '.join(errs))
     findings=run_checks(parsed, graph, collected)
     report={
         'topology':parsed['name'],
