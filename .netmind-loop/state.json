@@ -3,8 +3,8 @@
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 36,
-  "phase": "build",
-  "updated": "2026-10-06T01:18:01+08:00",
+  "phase": "test",
+  "updated": "2026-10-06T01:49:32+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -22,7 +22,7 @@
   "metrics": {
     "tests_collected": 347,
     "gates_total": 22,
-    "gates_passed": 54,
+    "gates_passed": 53,
     "gates_warned": 0,
     "src_lines": 17546,
     "generic_names": 199,
@@ -1846,6 +1846,14 @@
       "root_cause": "该门禁检查了「没配处置接口要拒绝」，却没检查「这个诊断压根没有处置原语时也不能编一个」。而 anomaly_traffic（方向反）与 config_error（缺归属证明）正是被刻意移出处置表的两个诊断——真把它们加回去，门禁看不见。",
       "fix": "已补：build() 对这两类必须抛 RemediationUnavailable。",
       "at": "2026-10-05T23:20:00+08:00"
+    },
+    {
+      "cycle": 37,
+      "gate": "state-based-on-is-honest",
+      "on_fail": "block",
+      "root_cause": "based_on 落后 HEAD 4 个 commit（>3）——状态快照已过期，接手的人会读到错的状态",
+      "fix": "待定——本轮不记根因的门禁会原样复现",
+      "at": "2026-10-06T01:49:32+08:00"
     }
   ],
   "gates_total": 54,
@@ -1856,7 +1864,7 @@
     "deliverable": "",
     "planned_at": "2026-10-06T01:18:01+08:00"
   },
-  "based_on": "9ad1144",
+  "based_on": "8d11200",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
