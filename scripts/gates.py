@@ -1603,13 +1603,21 @@ readme = (ROOT / 'README.md').read_text(encoding='utf-8')
 
 # 1) compose 里那个变量上方必须有醒目提示，而不是一句「留空 = 仅本机」
 import re as _re
-env_idx = compose.find('NETMIND_ADMIN_TOKEN')
+# 锚在**变量声明**上，不是这个字符串的第一次出现——它在上面的注释里也出现过，
+# 用 find() 会把锚点落在注释中段，删掉注释后检查的其实是别的地方。
+env_idx = compose.find('- NETMIND_ADMIN_TOKEN=')
 assert env_idx != -1, 'docker-compose.yml 里没有 NETMIND_ADMIN_TOKEN——部署者无从得知要设'
-nearby = compose[max(0, env_idx - 1400):env_idx]
+# 窗口必须贴着这个变量。原先取上方 1400 字符，实测**把整段说明注释删掉也能过**——
+# 窗口里恰好还留着别处的字样。这正是「看似严实则松」：查了、也没漏，就是太松。
+line_start = compose.rfind('\n', 0, env_idx) + 1
+nearby = compose[max(0, line_start - 400):env_idx]
 assert ('必须' in nearby or '⚠️' in nearby), \
     'docker-compose.yml 里 NETMIND_ADMIN_TOKEN 上方没有「必须设置」的提示'
 assert ('网关' in nearby or 'docker' in nearby.lower() or '端口映射' in nearby), \
     'compose 的提示没说清原因：经端口映射后对端不是 loopback'
+# 而且提示要真的在变量**上方**而不是下方同一段里
+assert '必须' in nearby or '⚠️' in compose[:line_start], \
+    '「必须设 token」的提示被放到了变量下方，部署时先看到的是光秃秃的一行'
 
 # 2) 部署指南必须把它放在最前面，而不是埋在正文里
 head = deploy[:deploy.find('## 1.')]
@@ -2104,6 +2112,34 @@ assert states['healthy']['rtt_avg_ms'] < states['delay_only']['rtt_avg_ms'], '�
 # 采集器必须真的接在 schema 上，否则真实数据存不进来
 sc = (ROOT / 'backend' / 'app' / 'schemas.py').read_text(encoding='utf-8')
 assert "'real'" in sc or '"real"' in sc, 'TelemetrySnapshot.source 未开放 real 取值——真实数据在 schema 层会被拒'
+
+# 4) **实测消费方**。上面全是静态文件检查：fixture 有真实抓包特征、schema 开放了
+#    real 取值。但它们都证明不了「真采集进来后 source 还是不是 real」。
+#    实测过：把 to_snapshot 里的 `source=source` 改成 `source='simulated'`
+#    （把真实采集谎报成模拟），**本门禁与 no-sentinel-measurements、
+#    telemetry-not-guessed、fixtures-are-self-consistent 全部照样 PASS**，
+#    只有测试套件抓到。也就是说「真实数据不是编的」这个**项目的核心主张**，
+#    在门禁层面完全没人在管。这里真跑一遍。
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+from app.diagnose.lab_collector import to_snapshot as _ts   # noqa: E402
+from app.schemas import TelemetrySnapshot as _TS              # noqa: E402
+
+_parsed = {'transmitted': 10, 'received': 10,
+           'rtt_avg_ms': 12.4, 'loss_ratio': 0.0}
+assert _TS(source='real', alert=False, timestamp='2026-01-01T00:00:00',
+           src='a', dst='b').source == 'real', 'schema 不接受 source=real'
+
+for _src, _expect in (('real', 'real'), ('lab', 'lab')):
+    _snap = _ts(_parsed, source=_src)
+    assert _snap.source == _expect, (
+        f'to_snapshot 收了 source={_src} 却吐出 {_snap.source!r}——'
+        f'真实采集被谎报成了别的来源，而本门禁此前只查静态文件，完全看不见')
+    assert _snap.latency_ms == 12.4, f'source={_src} 时延迟被改动了'
+
+# 不得因为「安全」把所有来源一律改成 simulated
+assert _ts(_parsed, source='real').source != 'simulated', \
+    '真实采集被标成 simulated——这正是本门禁的名字要防的事'
 """,
     ),
     Gate(
@@ -2134,6 +2170,58 @@ neg = [x for x in scen if x['scenario'] == 'no_op_negative']
 assert neg, '跑测数据缺 no_op_negative 反例'
 assert neg[0]['success'] is False, '反例的 success 竟为 True——闭环又在演戏'
 assert neg[0]['verified'] is True, '反例应已重测，verified 应为 True'
+
+# 4) **实测**：上面查的是过去**记录**下来的 fixture，代码回归了它也不知道。
+#    实测过：把 heal() 改成 `rep.success = True` 恒报成功，本门禁照样 PASS
+#    （fixture 是静态文件、schema 默认值没变）——名字声称「自愈不得恒报成功」，
+#    实际只证明「历史上记录过一次失败」。fixture 证明「验过」，不证明「现在还对」。
+#    这里真跑一遍必须失败的路径，看当前代码给不给 False。
+import os as _os
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+from app.schemas import Diagnosis as _D                              # noqa: E402
+from app.core.telemetry import TELEMETRY as _T                      # noqa: E402
+import app.core.transaction as _txn                                  # noqa: E402
+from app.schemas import CommandResult as _CR, DeployResult as _DR  # noqa: E402
+
+class _RejectingDriver:
+    mode = lambda self: 'real'                                     # noqa: E731
+    name = 'gate-probe'
+    def execute(self, c):                                           # noqa: D401
+        return _CR(command=c, success=False, output='gate: device refused')
+
+class _RejectingTxn:
+    driver = _RejectingDriver()
+    def deploy(self, eid, plan):
+        return _DR(execution_id=eid, executed=[], success=False, mode='real')
+    def rollback(self, plan, eid, reason='', policies=None):
+        return _DR(execution_id=eid, executed=[], rolled_back=False,
+                   rollback_complete=None, success=False, mode='real')
+
+_orig_txn = _txn.TRANSACTION
+_orig_env = _os.environ.get('NETMIND_HEAL_IFACE')
+_os.environ['NETMIND_HEAL_IFACE'] = 'eth0'
+_txn.TRANSACTION = _RejectingTxn()
+try:
+    _orig_sample = _T.sample
+    _T.sample = lambda record=True: __import__(
+        'app.schemas', fromlist=['TelemetrySnapshot']).TelemetrySnapshot(
+            latency_ms=200.0, packet_loss=0.3, throughput_mbps=10,
+            alert=True, source='real')
+    _T._last_fallback = ''
+    _live = _T.heal(_D(type='congestion', confidence=0.9), iface='eth0')
+finally:
+    _T.sample = _orig_sample
+    _txn.TRANSACTION = _orig_txn
+    if _orig_env is None:
+        _os.environ.pop('NETMIND_HEAL_IFACE', None)
+    else:
+        _os.environ['NETMIND_HEAL_IFACE'] = _orig_env
+
+assert _live.success is False, (
+    '真跑一遍「设备拒绝执行」的路径，当前代码却报 success=True——'
+    '自愈又在恒报成功。上面的 fixture 检查只证明历史上记录过一次失败，'
+    '**证明不了现在还对**。')
 """,
     ),
     Gate(

@@ -13,6 +13,7 @@ services:
       # 不是 loopback——哪怕请求是你在自己电脑上用浏览器发的。
       # 于是默认（token 留空）下 /api/* 一律 403，面板能打开但一个数据都拿不到。
       #
+      # ⚠️ **必须**设 NETMIND_ADMIN_TOKEN，否则面板能打开但一个数据都拿不到。
       # 起法：NETMIND_ADMIN_TOKEN=$(python3 -c "import secrets;print(secrets.token_urlsafe(32))") docker compose up -d
       # 之后在浏览器控制台执行 localStorage.setItem('netmind-admin-token', '<同一个值>')。
       # 直接跑 uvicorn（不经容器）时不需要——那时确实来自 loopback。
