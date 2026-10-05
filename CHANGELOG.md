@@ -196,6 +196,73 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **门禁审计第五轮：又抓到三条「看似严实则松」的假防线、两处文档缺陷，外加一个
+  反复咬人的幽灵**。判据始终是同一条：**注入反例后门禁会不会红**。
+
+  1. `vendor-matrix-is-authoritative` —— 把 `cisco-ios` 从 `declared` 谎报成
+     `verified`（声称真机验过、实际从没验过）时照样 PASS。原实现只查了「至少
+     有一个 verified」和「fixture 采到东西」，没查**每一个** verified 是否有
+     自己的证据。现按 `transport/driver` 组合逐个厂商核对采集 fixture，且**只
+     认 `collected` 不认 `errors`**：fixture 里 r1 那条 napalm/eos 是真去连了但
+     被拒（Connection refused），那是「试过」不是「验过」，拿它当证据就是撒谎。
+     两条反例都验证过会红（谎报 cisco-ios / 谎报 juniper-junos）
+
+  2. `security-doc-matches-behavior` —— 文档清单是**手写**的：修 SECURITY.md 时
+     顺手添了 `docs/*.md`，`CONTRIBUTING.md`、`CLA.md`、`.netmind-loop/protocol.md`
+     就各漏一份。实测往 `CONTRIBUTING.md` 塞回那句错话，门禁照样绿。现从
+     `git ls-files` 推（`--cached --others --exclude-standard`，把**新增但还没
+     提交**的文档也算进来——那恰恰是最该拦住的时刻）；非 git 环境退回按目录扫，
+     任何一条路径都断言「确实扫到了东西」，不让扫描范围静默退化成零
+
+  3. `no-missing-as-zero` —— 只扫 `App.jsx`，而渲染逻辑早就抽进 `frontend/src/lib/`
+     了（display / charts / graph / topology）。实测往 `lib/charts.js` 放一个
+     `m.latency_ms || 0`，照样 PASS。与第 2 条是同一个错：**代码搬了家，
+     手写清单没跟着搬**。现扫整个 `frontend/src`，并剥掉块注释——charts.js 与
+     display.js 的注释里**引用了这个坑本身**当反例，不剥会被判成违规
+
+  4. `no-ai-smell`（`scripts/copy_lint.py`）—— 覆盖面从 7 份手写清单扩到
+     **13 份**（`CLA.md` / `CONTRIBUTING.md` / `docs/commercial-readiness-audit.md` /
+     `docs/load-test-baseline.md` / `docs/sbom-choice.md` / `.netmind-loop/protocol.md`
+     此前全不在其中），口径与第 2 条共用 `scripts/docs_scope.py`。扩面当场抓出
+     **12 处**无源数字，5 处是真问题（已给出处：`store.py` 的常量名、复现脚本、
+     交叉引用），其余是判定过严的误报
+     ——「门禁一旦开始误报，人就会开始忽略它，那比漏检更糟」
+
+  5. 诚实表 `Credential tiers` 一格里，**两版改写被拼在一起而不是替换**——同一
+     段「✅ Two — `NETMIND_ADMIN_TOKEN` (all methods) and ...」出现了两次，前半
+     句已被后半句作废却还留着。读者只能靠猜才知道哪半句是现状，**而诚实表不许
+     靠猜**。已合并，并给 `honesty-table-signals-current-state` 补了「同格不得
+     出现重复长片段（40 字符）」的检查——短于 40 的是常见措辞，长于它的重复
+     几乎只可能来自复制粘贴事故
+
+  第 2/3/4 条是**同一个错**：代码或文档搬了家，手写清单没跟着搬。所以口径收成一处
+  （`scripts/docs_scope.py`，从 `git ls-files` 推，含新增未提交文档），
+  谁需要谁 import，不许再抄第二遍
+
+  另修一个**不是门禁缺陷、但一直在污染门禁结论**的幽灵：`__pycache__` 里的陈旧
+  字节码。此前多次出现「明明 `git checkout` 还原了，门禁还报一模一样的错」，
+  看着像真缺陷，其实是 Python 加载了注入实验期间写下的 `.pyc`。根因是门禁
+  反复做「注入 → 跑 → 还原」，而它自己在还原之前就把注入态缓存了。
+  现 `gates.py` 与 `loop.py` 开头都设 `sys.dont_write_bytecode` 并把
+  `PYTHONDONTWRITEBYTECODE=1` 传给子进程（pytest 等），**不写就没有幽灵可留**。
+  已按原场景复验：注入 → 变红 → 还原 → 变绿，全程不手动清任何缓存，
+  产出的 `.pyc` 数量为 0
+
+  本轮还踩了两次**无效证伪**，都记下来：
+
+  · 第一次往 `CONTRIBUTING.md` 注入时写的是 `NETMIND_ADMIN_TOKEN`，而门禁只
+    匹配小写 `token` 与首字母大写 `Token`，全大写 `TOKEN` 匹配不上——门禁绿是
+    **我的注入没生效**，不是防线失效。顺带把这条洞补了（token 一词不分大小写）
+  · 给「可复算文档」加豁免时，第一版做成**整份文件豁免**，结果 13 份文档里
+    9 份（含 README）直接免疫数字检查。那不是修门禁，是给营销话术开后门。
+    收到「只有表格行豁免，散文一条不放过」
+
+  补这条豁免时又撞见一个**更老的洞**：数字的出处只看「上一行/下一行有没有
+  反引号」，于是**只要上一行带 `代码`，整行无源数字就被放行**——实测在 README
+  末尾追加一句「吞吐提升 3 倍，覆盖率 87%」，门禁放行。原因是我先写了个更松的
+  判定（找最近的非空行）才撞见的。证据判定现分三档：同一行 / 紧邻的同段行 /
+  隔一个空行的 `>` 注释块；跨段落撞上普通散文**不算**注解
+
 - **门禁审计第四轮：`healing-is-guarded` 在「缺处置原语时编一条命令」时照样 PASS**。
   该门禁检查了「没配处置接口要拒绝」，却没检查「这个诊断压根没有处置原语时
   也不能编一个」。而 `anomaly_traffic`（方向反）与 `config_error`（缺归属证明）

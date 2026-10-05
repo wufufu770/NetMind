@@ -11,11 +11,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# 门禁会反复做「注入反例 → 跑 → 还原」这类事。若允许写 __pycache__，注入
+# 期间的模块会被缓存成 .pyc；随后 `git checkout` 还原源码时，Python 仍可能
+# 加载那份陈旧字节码——表现为「明明还原了，门禁还报同样的错」，看起来像真
+# 缺陷，其实是幽灵。这个坑本项目已经反复吃过。不写字节码就没有幽灵可留。
+sys.dont_write_bytecode = True
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'   # 让 pytest 等子进程也继承
 
 ROOT = Path(__file__).resolve().parents[1]
 LOOP_DIR = ROOT / '.netmind-loop'
@@ -522,6 +530,26 @@ assert '修过的同类问题' in _block, \
 # 至少保留若干条现有限制——全部清空通常意味着表被掏空了，而不是问题都解决了
 _warned = [l for l in _rows if '⚠️' in l]
 assert len(_warned) >= 3, f'只剩 {len(_warned)} 条 ⚠️，确认一下是不是把限制也一起删了'
+
+# 同一格里不得出现**重复的长片段**。合并两版改写时最容易出这种：两段都以
+# 「✅ Two — `NETMIND_ADMIN_TOKEN` (all methods) and ...」开头，后写的那段
+# 并没有替换掉前一段，而是直接拼在了后面。读起来像两个人各写了一半，
+# 而「哪半句才是当前状态」无从判断——**读者只能靠猜，诚实表不许靠猜**。
+# 片段取 40 字符：短于它的是常见措辞（"write requests get 403"），
+# 长于它的重复几乎只可能来自复制粘贴事故。
+_dupes = []
+for _l in _rows:
+    _cells = [c.strip() for c in _l.split('|')]
+    for _cell in _cells[2:]:
+        for _n in range(0, len(_cell) - 39):
+            _frag = _cell[_n:_n + 40]
+            if _frag.strip() and _cell.count(_frag) > 1:
+                _dupes.append(
+                    f'{_cells[1].strip()}: 「{_frag.strip()[:60]}…」出现 {_cell.count(_frag)} 次')
+                break
+assert not _dupes, (
+    '诚实表同一格里出现了重复的长片段，多半是两版改写被拼在了一起而不是替换：\n    '
+    + '\n    '.join(_dupes))
 """,
     ),
     Gate(
@@ -1503,18 +1531,34 @@ assert re.search(r'`(scripts|backend|docs|tests)/', body), \
 # 格式化」的地方，都是同一个坑。
 import re as _re
 app_jsx = (ROOT / 'frontend' / 'src' / 'App.jsx').read_text(encoding='utf-8')
-code = '\n'.join(l.split('//')[0] for l in app_jsx.splitlines())
+
+# 扫**整个** frontend/src，不能只扫 App.jsx。渲染逻辑早就抽到 lib/ 里去了
+# （display / charts / graph / topology），门禁却还盯着 App.jsx 一个人——
+# 实测往 lib/charts.js 塞 `m.latency_ms || 0`，照样 PASS。这与
+# security-doc-matches-behavior 是同一个错：代码搬了家，手写清单没跟着搬。
+_FE_SRC = ROOT / 'frontend' / 'src'
+_FE_FILES = sorted(
+    p for p in _FE_SRC.rglob('*')
+    if p.suffix in {'.js', '.jsx'} and p.is_file() and '.test.' not in p.name)
+assert _FE_FILES, f'{_FE_SRC} 下没扫到任何源文件——范围退化了，门禁会永远放行'
 
 MEASURE_WORDS = ('latency_ms', 'packet_loss', 'throughput_mbps', 'duration_ms',
                  'confidence', 'avg_latency', 'avg_rtt', 'rtt_avg', 'loss_ratio')
 # 逐行做子串判断，不用正则——`\s` 在本文件的 raw string 里容易被多写一层反斜杠，
 # 写出「匹配字面反斜杠」的检查，然后在别处莫名命中
+#
+# 注释要剥干净：块注释里会**引用这个坑本身**当反例（charts.js / display.js
+# 的注释里就写着原来的 `Number(x[field] || 0)`），留着会把正确的说明判成违规。
+_BLOCK = _re.compile(r'/\*.*?\*/', _re.S)
 hits = []
-for line in code.splitlines():
-    for w in MEASURE_WORDS:
-        if w + ' || 0' in line:
-            hits.append(line.strip()[:110])
-            break
+for _p in _FE_FILES:
+    _raw = _BLOCK.sub('', _p.read_text(encoding='utf-8'))
+    for line in _raw.splitlines():
+        code_line = line.split('//')[0]
+        for w in MEASURE_WORDS:
+            if w + ' || 0' in code_line:
+                hits.append(f'{_p.relative_to(ROOT)}: {code_line.strip()[:100]}')
+                break
 assert not hits, (
     '这些地方用 `指标 || 0` 把缺失值变成 0——渲染出来是「测了，是 0」：\n    '
     + '\n    '.join(hits))
@@ -1694,19 +1738,31 @@ try:
     # 上一轮修了 SECURITY.md 就以为这事结了，`docs/API.md` 与 `README.md` 的
     # 环境变量表各留了一份。门禁覆盖了它检查的那份，并不代表别的文档是对的。
     #
+    # 文档清单**从 git 里推**，不手写。手写清单的必然结局：上一轮修 SECURITY.md
+    # 时顺手把 docs/*.md 添进去，这一轮 CONTRIBUTING.md、CLA.md 和 docs 的子目录
+    # 就各漏一份——实测往 CONTRIBUTING.md 塞回同一句错话，门禁照样绿。
+    #
+    # 口径来自 scripts/docs_scope.py，copy_lint 用的也是它。**不许再抄第二遍**：
+    # 这已经是同一个错的第三次出现了。
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / 'scripts'))
+    from docs_scope import customer_facing           # noqa: E402
+    visible = customer_facing(ROOT)
+    #
     # 只拦**断言**，不拦**提及**：CHANGELOG 里写「此前说 non-GET 是错的」是在
     # 记录修正史，若一并拦下，就得把修正记录从变更日志里删掉——那更糟。
     CORRECTION = ('错误', '误', '曾', '此前', '原先', '改', '修正',
                   'wrong', 'earlier', 'fixed', 'was ', 'used to')
-    visible = ([ROOT / 'SECURITY.md', ROOT / 'README.md', ROOT / 'CHANGELOG.md']
-               + sorted((ROOT / 'docs').glob('*.md')))
     stale = []
     for dpath in visible:
         if not dpath.exists():
             continue
         for line in dpath.read_text(encoding='utf-8').splitlines():
+            # token 一词**不分大小写**：文档里写 NETMIND_ADMIN_TOKEN 是最自然的
+            # 写法，而只匹配 'token'/'Token' 会漏掉它。实测踩过这个坑——
+            # 第一次注入就是写的全大写 TOKEN，门禁照样绿，害我差点误判成防线失效。
             if not (('non-GET' in line or '非 GET' in line)
-                    and ('token' in line or 'Token' in line)):
+                    and 'token' in line.lower()):
                 continue
             if any(w in line for w in CORRECTION):
                 continue          # 在讲「这里曾经错」，不是在断言现状
@@ -2387,6 +2443,34 @@ for v in VENDORS:
 # 3) 标 verified 的必须有真实采集 fixture 支撑
 s = summary()
 assert s[VERIFIED] >= 1, '没有任何厂商是 verified——矩阵应至少反映已跑通的 Linux/FRR'
+
+# 每一个 verified 都得有**逐个**的证据。注释写的是「标 verified 的必须有真实
+# 采集 fixture 支撑」，但实现只查了「至少有一个 verified」和「fixture 采到
+# 东西」——实测把 cisco-ios 从 declared 谎报成 verified（真机上从没验过）
+# 照样 PASS。
+#
+# 证据取自 fixture 里**采集成功**的节点所记录的 `transport`（真实采集时写
+# `netmiko/linux` 这类值）。只比 transport 太松——netmiko 底下多个驱动会互相
+# 顶包——所以钉到 `transport/driver` 组合。
+#
+# 只认 collected、不认 errors：fixture 里 r1 那条 napalm/eos 是真去连了但被
+# 拒（Connection refused），那是「试过」不是「验过」，标 verified 就是撒谎。
+_fx_path = ROOT / 'tests' / 'fixtures' / 'lab' / 'live-collection.json'
+if _fx_path.exists():
+    _fx = json.loads(_fx_path.read_text(encoding='utf-8'))
+    _proven = set()
+    for _data in (_fx.get('collected') or {}).values():
+        if not isinstance(_data, dict):
+            continue
+        _t = str(_data.get('transport') or '').strip().lower()
+        if _t:
+            _proven.add(_t)
+    for _v in [v for v in VENDORS if v.level == VERIFIED]:
+        _want = f'{str(_v.transport).lower()}/{str(_v.driver).lower()}'
+        assert _want in _proven, (
+            f'{_v.name} 标成 verified，但采集 fixture 里没有任何**成功采集**的节点'
+            f'用过 {_want}；fixture 实际记的是 {sorted(_proven) or "空"}。'
+            f'没在真机上跑通的设备不能标 verified（试过但失败的不算，见 errors）。')
 fx = P('tests/fixtures/lab/live-collection.json')
 if fx.exists():
     d = json.loads(fx.read_text(encoding='utf-8'))

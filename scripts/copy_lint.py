@@ -16,16 +16,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# 客户可见面：这些文件的主张会被人读到
-CUSTOMER_FACING = [
-    'README.md',
-    'docs/ARCHITECTURE.md',
-    'docs/API.md',
-    'SECURITY.md',
-    'docs/DEPLOY.md',
-    'CHANGELOG.md',
-    'docs/closed-loop-run-report.md',
-]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from docs_scope import customer_facing          # noqa: E402
 
 # 空洞套话：命中即红（承律 1「挂不上可复现物就删」）
 SLOP_WORDS = [
@@ -83,13 +75,37 @@ NOT_A_CLAIM_RE = re.compile(
     # 判据是「3 位、落在 100–599、不带单位」：带单位的（200ms / 50%）仍会被抓。
     r'|\b[1-5]\d{2}\b(?!\s*(?:%|ms|s\b|秒|倍|x|×|人日|人天))'
 )
-# 来源证据：markdown 链接、行内代码、路径、commit、命令
+# 来源证据：markdown 链接、行内代码、路径、commit、命令，
+# 以及**交叉引用**（见上表 / 详见文末 / 见第 3 节）。
+# 「见上表」在人读的文档里就是出处——读者知道该去哪看数字，而它指的还是
+# 同一份文件里已经被证据覆盖的那张表。
 EVIDENCE_RE = re.compile(
-    r'\[[^\]]+\]\([^)]+\)|`[^`]+`|https?://|\b[0-9a-f]{7,40}\b|\.py\b|\.mjs\b|\.md\b|\.ya?ml\b|\btests?/')
+    r'\[[^\]]+\]\([^)]+\)|`[^`]+`|https?://|\b[0-9a-f]{7,40}\b|\.py\b|\.mjs\b|\.md\b|\.ya?ml\b|\btests?/'
+    r'|见(?:上|下|前|后)?(?:表|文末|文首|附录|下文|上文|清单)|详见|参见|见第[一二三四五六七八九十\d]+[节章节行项]'
+    r'|\bsee (?:the )?(?:table|section|above|below)\b')
 
 
 def strip_fences(text: str) -> str:
     return re.sub(r'```.*?```', '', text, flags=re.S)
+
+
+# 「可复算」文档：带一个真有命令的围栏代码块。
+#
+# 判据必须**窄**。第一版把它做成整份文件豁免，结果 13 份客户可见文档里 9 份
+# （包括 README）直接免疫数字检查——那等于给营销话术开后门，只差没写在脸上。
+# 现在它只用于**表格**：测量报告里的 p50/p95/p99 表格，别人能自己重跑出来，
+# 逐格挂来源链接是荒谬的；散文里的数字一条也不放过。
+REPRODUCE_RE = re.compile(
+    r'```[a-z]*\n((?:[^\n`]*\n)+?)```', re.I)
+
+
+def has_reproduce_steps(raw: str) -> bool:
+    for block in REPRODUCE_RE.findall(raw):
+        for line in block.splitlines():
+            s = line.strip()
+            if s and not s.startswith('#') and not s.startswith('>'):
+                return True
+    return False
 
 
 def check_file(path: Path) -> list[tuple[str, int, str]]:
@@ -100,6 +116,7 @@ def check_file(path: Path) -> list[tuple[str, int, str]]:
     findings = []
 
     body = strip_fences(raw)
+    reproducible = has_reproduce_steps(raw)
     # 表格是一个整体：来源写在表前后的引出句/脚注即可，不要求逐行挂。
     # 逐行要求会让表格被迫塞满引用，反而逼人把表格拆成散文。
     # 判定方式：行属于某张表时，在该表起始行前 3 行与结束行后 3 行内找证据。
@@ -134,6 +151,27 @@ def check_file(path: Path) -> list[tuple[str, int, str]]:
                 return any(EVIDENCE_RE.search(c) for c in ctx)
         return False
 
+    # 证据的「相邻」要分三档，不能笼统地「附近有行带反引号就算有源」——
+    # 那等于给无源数字开后门：实测在 README 末尾追加一句无源数字，它前面
+    # 恰好是带 `代码` 的行，于是整句被当成有源放行。
+    #
+    #   1) 同一行：最硬的证据
+    #   2) 紧邻的同段行（中间无空行）：中文长句常在行中换行，「数据由 X 产生」
+    #      写在下一行是真的在同一句里
+    #   3) 隔一个空行的 `>` 注释块：标题与它的注解在人读起来就是一句话的两半
+    #
+    # 跨段落撞上普通散文不算——那不是注解，只是碰巧的邻居。
+    def _same_para(step: int) -> str:
+        i = idx + step
+        return lines[i] if 0 <= i < len(lines) and lines[i].strip() else ''
+
+    def _annotation(step: int) -> str:
+        # 跨**一个**空行再找 `>` 注释块：标题与它的注解在人读起来是一句话的两半
+        i = idx + step
+        if 0 <= i < len(lines) and not lines[i].strip():
+            i += step
+        return lines[i] if 0 <= i < len(lines) and lines[i].lstrip().startswith('>') else ''
+
     for idx, line in enumerate(lines):
         lineno = idx + 1
         if line.lstrip().startswith('|') and set(line.strip()) <= set('|-: '):
@@ -148,21 +186,19 @@ def check_file(path: Path) -> list[tuple[str, int, str]]:
                 findings.append(('EMOJI', lineno, f'装饰性 emoji「{ch}」应删'))
 
         scrubbed = NOT_A_CLAIM_RE.sub(' ', line)
-        # 换行句允许证据落在紧邻的前后行——中文长句常在行中换行
-        prev = lines[idx - 1] if idx > 0 else ''
-        nxt = lines[idx + 1] if idx + 1 < len(lines) else ''
+        ctx = (line, _same_para(-1), _same_para(+1), _annotation(-1), _annotation(+1))
+        sourced = any(EVIDENCE_RE.search(c) for c in ctx)
         in_fence = idx in fenced
-        if (NUM_RE.search(scrubbed) and not in_fence
-                and not EVIDENCE_RE.search(line)
-                and not EVIDENCE_RE.search(prev) and not EVIDENCE_RE.search(nxt)
-                and not table_evidence(idx)):
+        # 只有**表格行**享受「可复算」豁免，散文数字照查
+        in_table = any(a <= idx <= b for (a, b) in table_spans)
+        need_source = not (reproducible and in_table)
+        if (NUM_RE.search(scrubbed) and not in_fence and need_source
+                and not sourced and not table_evidence(idx)):
             m = NUM_RE.search(scrubbed)
             findings.append(('NUM', lineno, f'无源数字「{m.group(0).strip()}」需挂命令/报告/链接'))
         # 圆整数字是「值得复核的信号」而非判决：实测值恰好是整数很常见
         # （0% / 10% 丢包就是 netem 参数本身）。已挂来源就不再提示。
-        elif (ROUND_RE.search(scrubbed) and not in_fence
-              and not EVIDENCE_RE.search(line)
-              and not EVIDENCE_RE.search(prev) and not EVIDENCE_RE.search(nxt)):
+        elif (ROUND_RE.search(scrubbed) and not in_fence and need_source and not sourced):
             m = ROUND_RE.search(scrubbed)
             findings.append(('ROUND', lineno, f'圆整统计「{m.group(0).strip()}」需换实测值'))
 
@@ -187,9 +223,13 @@ def check_file(path: Path) -> list[tuple[str, int, str]]:
 
 
 def main() -> int:
-    targets = [ROOT / f for f in CUSTOMER_FACING if (ROOT / f).exists()]
+    # 口径来自 docs_scope：这里原先是一份手写的 CUSTOMER_FACING 清单，
+    # CLA.md / CONTRIBUTING.md / docs 下的 commercial-readiness-audit、
+    # load-test-baseline、sbom-choice 与 .netmind-loop/protocol.md 全不在其中。
+    # 客户看不到的营销话术不该拦，客户看得到的每一份都该拦。
+    targets = customer_facing(ROOT)
     if not targets:
-        print('  客户可见文件一个都没找到——检查 CUSTOMER_FACING 配置')
+        print('  客户可见文件一个都没找到——扫描范围退化了')
         return 1
     total = 0
     for p in targets:

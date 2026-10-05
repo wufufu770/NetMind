@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -23,6 +24,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# 同 gates.py：循环驱动器会反复调起门禁，绝不能把当前源码状态写进
+# __pycache__，否则「注入实验 → 还原」之后会留下加载不掉的幽灵字节码。
+sys.dont_write_bytecode = True
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'   # 让子进程也继承
 LOOP_DIR = ROOT / '.netmind-loop'
 STATE_PATH = LOOP_DIR / 'state.json'
 sys.path.insert(0, str(ROOT / 'scripts'))
