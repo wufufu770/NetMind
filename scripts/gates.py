@@ -2586,10 +2586,25 @@ assert tfiles, '前端无测试文件'
 app = (ROOT / 'frontend' / 'src' / 'App.jsx').read_text(encoding='utf-8')
 imported = ('./lib/format.js' in app)
 assert imported, 'App.jsx 未 import 抽出的模块——测的不是实际运行的那份代码'
+# 本地副本要**形态无关**地查。原实现只找 `function compactLabel`，于是把函数以内联
+# `const compactLabel = ...` 的形式搬回 App.jsx 照样 PASS——而这条检查的全部意义
+# 就是「抽出的模块是唯一真相」，换个写法就能绕过等于没有。
 for fn in ('compactLabel', 'displayToolName', 'executionLabel', 'localizeJsonText'):
-    assert ('function ' + fn) not in app, ('App.jsx 仍保留 ' + fn + ' 的本地副本，抽出的模块等于没接上')
-ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
-assert 'npm test' in ci, 'CI 未运行前端测试'
+    dup = re.search(r'(?:^|\n)\s*(?:function\s+' + fn + r'\b'
+                    r'|(?:const|let|var)\s+' + fn + r'\s*=)', app)
+    assert not dup, ('App.jsx 仍保留 ' + fn + ' 的本地副本，抽出的模块等于没接上'
+                     '（arrow function / const 赋值也算副本）')
+
+# CI 必须真的跑前端测试，而不是「文件里出现过 npm test 这几个字」。原实现是
+# `'npm test' in ci`，实测把 CI 里那行注释掉（`# ... npm ci && npm test`）照样 PASS。
+# 现在解析 YAML，要求有一个 run 里真的执行 npm test 的步骤，且失败会红。
+import yaml as _fyaml                       # noqa: E402
+_ci = _fyaml.safe_load((ROOT / '.github' / 'workflows' / 'ci.yml')
+                       .read_text(encoding='utf-8')) or {}
+_runs = [str(st.get('run') or '') for j in (_ci.get('jobs') or {}).values()
+         for st in ((j or {}).get('steps') or [])]
+assert any(re.search(r'\bnpm\s+test\b', r) for r in _runs), \
+    'CI 里没有一个会真正执行 `npm test` 的步骤——把那行注释掉就能让「前端有测试」变绿'
 """,
     ),
     Gate(

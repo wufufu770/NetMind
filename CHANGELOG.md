@@ -196,6 +196,14 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`frontend-has-tests` 两处都是文本判断，都能绕过**。其一，检查「抽出的模块没有
+  在 App.jsx 里留本地副本」只找 `function compactLabel` 这一种写法，于是把函数以内联
+  `const compactLabel = ...` 搬回去照样 PASS——而这条检查的全部意义就是「抽出的模块
+  是唯一真相」，换个语法就能绕过等于没有。现改为形态无关（function / const / let /
+  var 都算副本）。其二，CI 是否跑前端测试只查 `'npm test' in ci`，实测把那行注释掉
+  （`# ... npm ci && npm test`）照样 PASS；现解析 YAML，要求有一个 run 里真的执行
+  `npm test` 的步骤。三条反例都验证会红
+
 - **`state-based-on-is-honest` 放行 `based_on` 指向 HEAD 本身**——那正是本门禁要禁的
   自指。它一路通过的原因很干净：HEAD 是真实 commit、是 HEAD 的祖先（**自己是自己的
   祖先**）、落后 0 个 commit 不算漂。而语义上 `based_on` 指「状态所描述的那棵树」，
