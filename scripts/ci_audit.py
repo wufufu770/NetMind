@@ -35,6 +35,10 @@ class Step:
     run: str
     workdir: str
     lineno: int
+    # 「跑了」和「跑了还会红」是两件事。continue-on-error 的步骤挂了 CI 照样绿，
+    # 那它就不是防护而是装饰——与本项目吃过的那个 SBOM 坑同一类。
+    continue_on_error: bool = False
+    cond: str = ''
 
 
 def _line_of(text: str, name: str) -> int:
@@ -64,7 +68,11 @@ def parse_steps(text: str) -> list[Step]:
                 continue
             wd = st.get('working-directory', '')
             nm = str(st.get('name') or '(未命名)')
-            steps.append(Step(job_name, nm, run.strip(), str(wd or ''), _line_of(text, nm)))
+            steps.append(Step(
+                job_name, nm, run.strip(), str(wd or ''), _line_of(text, nm),
+                continue_on_error=bool(st.get('continue-on-error')),
+                cond=str(st.get('if') or ''),
+            ))
     return steps
 
 
@@ -136,7 +144,13 @@ def audit(run_heavy: bool = True) -> dict:
     for s in steps:
         buckets.setdefault(classify(s), []).append(s)
     result = {'total': len(steps), 'buckets': {k: len(v) for k, v in buckets.items()},
-              'ran': [], 'skipped': [], 'failures': []}
+              'ran': [], 'skipped': [], 'failures': [],
+              # 「跑了」不等于「跑了会红」。这两份是给门禁断言用的清单。
+              'unenforced': [{'job': s.job, 'name': s.name, 'line': s.lineno,
+                              'why': 'continue-on-error: true' if s.continue_on_error
+                                     else f'if: {s.cond}'}
+                             for s in steps
+                             if s.continue_on_error or s.cond]}
     for s in steps:
         kind = classify(s)
         # loop-gates 那一步是门禁执行器自身。在门禁里再跑它 = 门禁 → 审计 → 门禁，

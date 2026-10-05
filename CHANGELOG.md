@@ -196,6 +196,15 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`ci-steps-are-executable` 只管「跑了」，不管「跑了会红」**。给某个步骤加上
+  `continue-on-error: true`（或 `if:` 条件），本门禁一路绿——本地实跑通过，
+  CI 里挂了也不红。而它宣称的是「CI 里每个可实跑的步骤都真跑一遍」，这跟本门禁
+  当初要根治的 SBOM 坑（写了但没执行，还让人以为覆盖到了）是同一类：**一段装饰
+  不构成防护**。`ci_audit.Step` 此前根本没读这两个字段，结构上就看不见它们。现补上，
+  出现即红并点名是哪一步、哪一条。
+  其余能力经反例确认有效：命令改成不存在的脚本会被拦下并给出退出码与 stderr
+  （不是笼统地说「失败了」）
+
 - **`load-test-no-loss` 在「什么都没压」时照样 PASS**。它只做
   `sum(x['errors'] for x in d['scenarios'])`——`scenarios` 是空列表时这个和就是 0，
   于是「零错误」在一次都没压的空转上也成立。实测把压测报告的 `scenarios` 换成

@@ -2649,6 +2649,16 @@ assert not res['failures'], (
     'CI 步骤实跑失败:\n  ' + '\n  '.join(
         f"{f['job']}/{f['name']} (ci.yml:{f['line']}) 退出码 {f['exit']}\n{f['tail'][-300:]}"
         for f in res['failures']))
+
+# 「跑了」和「跑了会红」是两件事。本门禁宣称「CI 里每个可实跑的步骤都真跑一遍」，
+# 而一个挂了也不会让 job 变红的步骤，跑了也只是一段装饰——与本门禁当初要根治的
+# 那个 SBOM 坑（写了但没执行，还让人以为覆盖到了）同一类。
+# 实测给 backend-tests/Validate project 加上 `continue-on-error: true`，
+# 本门禁一路绿：本地实跑通过、CI 里挂了也不红。
+assert not res['unenforced'], (
+    '这些 CI 步骤跑了也不会让 job 变红——它们是装饰，不是防护：\n  '
+    + '\n  '.join(f"{u['job']}/{u['name']} (ci.yml:{u['line']}) {u['why']}"
+                  for u in res['unenforced']))
 """,
     ),
     Gate(
