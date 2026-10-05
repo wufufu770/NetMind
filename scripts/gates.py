@@ -2878,21 +2878,80 @@ if have_tool:
     ),
     Gate(
         id='ci-security-gates',
-        desc='CI 具备依赖漏洞扫描（pip-audit / npm audit）',
+        desc='CI 具备依赖漏洞扫描（pip-audit / npm audit），且扫描失败必须让 job 变红',
         on_fail='warn',
         check=r"""
-ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
-has_pip = 'pip-audit' in ci
-has_npm = 'npm audit' in ci
-assert has_pip or has_npm, 'CI 无依赖漏洞扫描门（pip-audit / npm audit）'
+# 只判「文件里出现过 pip-audit 这几个字」是**没有牙齿**的：实测把 ci.yml 里
+# 两个扫描步骤整段注释掉（`- name:` 变成 `# name:`），本门禁照样 PASS。
+# 一行 `# TODO: 加 pip-audit` 同样能让它变绿。
+#
+# 现在做行为判定：解析 YAML，要求存在一个**真的会执行**的扫描步骤，且
+# 失败必须让 job 变红——
+#   · `run:` 里真的调了 pip-audit / npm audit（不是只出现在注释或 name 里）
+#   · 命令没被 `|| true`、`; exit 0` 之类吞掉（吞掉的扫描等于没有扫描）
+#   · 步骤没挂 `continue-on-error: true`（挂了也是装饰）
+import re as _sr
+import yaml as _yaml
+
+_ci_path = ROOT / '.github' / 'workflows' / 'ci.yml'
+_wf = _yaml.safe_load(_ci_path.read_text(encoding='utf-8'))
+_jobs = (_wf or {}).get('jobs') or {}
+assert _jobs, f'{_ci_path.name} 解析不出任何 job——扫描范围退化了，门禁会永远放行'
+
+_scanned, _swallowed = [], []
+for _jname, _job in _jobs.items():
+    for _st in (_job or {}).get('steps') or []:
+        _run = str(_st.get('run') or '')
+        if not (_sr.search(r'\bpip-audit\b', _run) or _sr.search(r'\bnpm audit\b', _run)):
+            continue
+        _label = f'{_jname}/{_st.get("name") or _run.strip()[:40]}'
+        # 吞掉失败的写法：扫描跑了，但无论发现多少漏洞都判通过
+        _soft = bool(_st.get('continue-on-error')) or _sr.search(
+            r'\|\|\s*true|;\s*exit\s+0|;\s*true\b|--audit-level\s*none', _run)
+        (_swallowed if _soft else _scanned).append(_label)
+
+assert _scanned, (
+    'CI 里没有一个**会真正让 job 变红**的依赖漏洞扫描步骤。'
+    '把 pip-audit / npm audit 步骤注释掉、或加上 `|| true` / '
+    '`continue-on-error: true`，本门禁都判它存在——那是装饰，不是防护。'
+    + (f'当前被吞掉的扫描：{_swallowed}' if _swallowed else ''))
 """,
     ),
     Gate(
         id='dependabot-present',
-        desc='依赖自动更新已启用',
+        desc='依赖自动更新已启用，且覆盖本项目实际用到的每个生态',
         on_fail='warn',
         check=r"""
-assert (ROOT / '.github' / 'dependabot.yml').exists(), '无 dependabot/renovate，CVE 响应无自动化'
+# 只断言「文件存在」没有牙齿：把 npm 那一段整个删掉（前端依赖从此不再有
+# CVE 响应），本门禁照样绿——而它宣称的是「依赖自动更新已启用」。
+#
+# 现按**本项目实际用到的生态**逐个核对，并确认配置的 directory 真实存在
+# （写错目录的 dependabot 配置不会报错，只是不干活，同样是装饰）。
+import yaml as _dyaml
+
+_db = ROOT / '.github' / 'dependabot.yml'
+_wf = _dyaml.safe_load(_db.read_text(encoding='utf-8')) or {}
+_ups = _wf.get('updates') or []
+assert _ups, 'dependabot.yml 里没有任何 updates 条目'
+
+# 用什么就登记什么，不多不少
+_ecos = {str(u.get('package-ecosystem')) for u in _ups}
+_need = {'pip', 'npm'}          # backend/requirements.txt 与 frontend/package.json
+_missing = sorted(_need - _ecos)
+assert not _missing, (
+    f'dependabot.yml 没有覆盖 {_missing} 生态——'
+    f'这些依赖从此没有自动 CVE 响应，而本门禁宣称「依赖自动更新已启用」。'
+    f'当前只有 {sorted(_ecos)}')
+
+_bad_dirs = []
+for _u in _ups:
+    _d = str(_u.get('directory') or '')
+    if not _u.get('schedule', {}).get('interval'):
+        _bad_dirs.append(f'{_u.get("package-ecosystem")}: 没有 schedule.interval')
+    # 仓库里没有对应目录 = 配置指向虚空，dependabot 不会报错也不会干活
+    if _d and _d != '/' and not (ROOT / _d.lstrip('/')).is_dir():
+        _bad_dirs.append(f'{_u.get("package-ecosystem")}: directory {_d} 不存在')
+assert not _bad_dirs, 'dependabot 配置指向虚空（不会报错，但也不会更新）：' + '；'.join(_bad_dirs)
 """,
     ),
 ]

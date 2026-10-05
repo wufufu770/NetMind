@@ -196,6 +196,28 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **`dependabot-present` 只断言「文件存在」——删掉 npm 那一整块它照样 PASS**。
+  它宣称的是「依赖自动更新已启用」，而删掉 npm 块之后前端依赖从此没有任何
+  CVE 响应。现按**本项目实际用到的生态**（pip / npm，对应
+  `backend/requirements.txt` 与 `frontend/package.json`）逐个核对，并确认每条
+  配置的 `directory` **在仓库里真实存在**——写错目录的 dependabot 配置不会
+  报错、也不会更新，同样是装饰。两条反例都验证会红（删 npm 块 / 目录名写错）
+
+- **`ci-security-gates` 只是文本包含判断——把 CI 里两个扫描步骤整段删掉，它照样 PASS**。
+  原实现只查 `'pip-audit' in ci`。这意味着 `ci.yml` 里写一行
+  `# TODO: 加 pip-audit` 就能让「依赖漏洞扫描已就位」这条安全声明变绿，
+  而 CI 实际上**一次漏洞都没扫**。现改为行为判定：解析 YAML，要求存在一个
+  **真的会执行、且失败会让 job 变红**的扫描步骤——命令不能只出现在注释或
+  step 名里，不能被 `|| true` / `; exit 0` 吞掉，步骤不能挂
+  `continue-on-error: true`。三条反例都验证会红：整段删除 / 两个扫描都被吞掉
+  （报错会点名是哪两个）。反向也钉住：只要**有一个**真扫描就通过，与该门禁
+  「pip-audit 或 npm audit」的原始契约一致——不把契约偷偷改成两个都必须有
+
+  本轮又一次**无效证伪**，同样记下来：第一次注入只把 `- name:` 注释掉，结果
+  下面的 `run:` 挂到了上一个 `setup-node` 步骤上，**扫描其实还在跑**，门禁当然
+  绿。改成整块删除步骤才真正验到底。**注入本身无效时，PASS 说明不了任何事**——
+  这已经是本项目连续第三次因为「注入没生效」而差点误判防线
+
 - **门禁审计第五轮：又抓到三条「看似严实则松」的假防线、两处文档缺陷，外加一个
   反复咬人的幽灵**。判据始终是同一条：**注入反例后门禁会不会红**。
 
