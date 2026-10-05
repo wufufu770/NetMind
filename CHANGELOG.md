@@ -4,6 +4,15 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 
 ## [Unreleased]
 ### Added
+- 门禁 `readonly-cannot-write-anything`：**全站枚举** OpenAPI 里每一个
+  post/put/patch/delete，断言只读凭据一律返回 403。只读凭据此前只被手工试过
+  几个端点，从没有全站枚举过——而「某个新加的端点忘了接只读校验」正是这个
+  项目反复吃亏的形态：测试测的是被挑中的那条路径，没被挑中的那些没人知道。
+  实测 70 个写方法端点全部符合，但当时**没有任何东西在保证它继续符合**。
+  反例证伪有效：把 POST 加进安全方法集 → 一次枚举出 26 个「只读凭据本该拦住、
+  却返回 200」的端点。同时钉住反面——管理员凭据必须仍能通过，否则一个
+  「谁都拒绝」的退化实现也能让这条门禁变绿
+
 - **MCP stdio 服务**（`netmind mcp`，backlog `B5-mcp` / Roadmap Phase 3）。
   此前只有 `MCPProtocol` 那个进程内 HTTP 适配器（`/api/mcp/*`），并不是真正的
   MCP 服务——外部客户端按 MCP 协议连不上，README 当时如实写的是

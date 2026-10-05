@@ -65,6 +65,101 @@ def _split_params(text):
 
 GATES: list[Gate] = [
     Gate(
+        id='readonly-cannot-write-anything',
+        desc='只读凭据必须对**每一个**写方法端点返回 403（全站枚举，不抽样）',
+        on_fail='block',
+        check=r"""
+# 只读凭据此前只被手工试过几个端点，从来没有全站枚举过。
+# 而「某个新加的端点忘了接只读校验」正是这个项目反复吃亏的形态：
+# 测试测的是被挑中的那条路径，没被挑中的那些没人知道。
+#
+# 现在全站枚举：OpenAPI 里每一个 post/put/patch/delete，都必须对只读凭据
+# 返回 403。实测 70 个端点全部符合——但**当时没有任何东西在保证它继续符合**。
+#
+# 顺带钉住反面：只对**只读**凭据要求 403。管理员凭据必须仍能通过，
+# 否则一个「全都拦住」的退化实现也能让这条门禁变绿。
+import os as _os
+import sys as _sys
+_sys.path.insert(0, str(ROOT / 'backend'))
+_k = ('NETMIND_ADMIN_TOKEN', 'NETMIND_READONLY_TOKEN', 'NETMIND_ALLOW_ANON_READONLY',
+      'NETMIND_TRUST_PROXY', 'NETMIND_RATE_LIMIT')
+_s = {_k2: _os.environ.get(_k2) for _k2 in _k}
+try:
+    _os.environ['NETMIND_ADMIN_TOKEN'] = 'gate-adm'
+    _os.environ['NETMIND_READONLY_TOKEN'] = 'gate-ro'
+    # 限流走在鉴权之前（挡住未授权洪水是有意的），开着会盖住鉴权结论
+    _os.environ['NETMIND_RATE_LIMIT'] = 'off'
+    _os.environ.pop('NETMIND_ALLOW_ANON_READONLY', None)
+    _os.environ.pop('NETMIND_TRUST_PROXY', None)
+
+    import app.core.access as _access
+    _access._client_host = lambda request: '203.0.113.9'      # 远程视角
+    from fastapi.testclient import TestClient               # noqa: E402
+    from app.main import app as fastapi_app                 # noqa: E402
+
+    _spec = fastapi_app.openapi()
+    _mut = sorted({(m.upper(), path) for path, ops in _spec['paths'].items()
+                   for m in ops if m in ('post', 'put', 'patch', 'delete')})
+    assert len(_mut) >= 40, f'只枚举到 {len(_mut)} 个写方法端点——端点表可能解析错了'
+
+    # 反面检查会用**管理员凭据真跑**全部 70 个端点，而其中
+    # config/reset-runtime、config/import、audit/run、tools/call 等**会真改 store**。
+    # 只读那一半是 403、不会改动，所以第一次没被污染门禁抓到；真跑管理员那半才暴露。
+    from app.store import STORE as _S          # noqa: E402
+    _snap = {k: (dict(v) if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
+             for k, v in (('executions', _S.executions), ('telemetry', _S.telemetry),
+                           ('approvals', _S.approvals), ('rules', _S.rules),
+                           ('models', _S.models), ('agents', _S.agents),
+                           ('tools', _S.tools), ('workflows', _S.workflows),
+                           ('mcp_servers', _S.mcp_servers), ('templates', _S.templates),
+                           ('templates_mgmt', getattr(_S, 'templates_mgmt', None)))}
+
+    def _restore() -> None:
+        _S.executions.clear();  _S.executions.update(_snap['executions'])
+        _S.telemetry.clear();   _S.telemetry.extend(_snap['telemetry'])
+        _S.approvals.clear();   _S.approvals.update(_snap['approvals'])
+        _S.rules.clear();       _S.rules.update(_snap['rules'])
+        _S.models.clear();      _S.models.update(_snap['models'])
+        _S.agents.clear();      _S.agents.update(_snap['agents'])
+        _S.tools.clear();       _S.tools.update(_snap['tools'])
+        _S.workflows.clear();   _S.workflows.update(_snap['workflows'])
+        _S.mcp_servers.clear(); _S.mcp_servers.update(_snap['mcp_servers'])
+        _S.templates.clear();   _S.templates.update(_snap['templates'])
+
+    try:
+      with TestClient(fastapi_app) as _c:
+        _leaks, _odd = [], []
+        for _m, _p in _mut:
+            _r = _c.request(_m, _p, headers={'Authorization': 'Bearer gate-ro'}, json={})
+            if _r.status_code != 403:
+                (_leaks if _r.status_code < 300 else _odd).append((_m, _p, _r.status_code))
+        assert not _leaks, (
+            '只读凭据在这些写端点上没有被拦住（会真的改动状态）:\n    '
+            + '\n    '.join(f'{m} {p} → {s}' for m, p, s in _leaks))
+        assert not _odd, (
+            '只读凭据在这些写端点上返回的不是 403（多半是 404/405，说明鉴权没先于路由生效）:\n    '
+            + '\n    '.join(f'{m} {p} → {s}' for m, p, s in _odd))
+
+        # 反面：管理员凭据必须仍能通过，否则「全都拦住」也能让这条门禁变绿
+        _adm_ok = 0
+        for _m, _p in _mut:
+            _r = _c.request(_m, _p, headers={'Authorization': 'Bearer gate-adm'}, json={})
+            if _r.status_code != 403:
+                _adm_ok += 1
+        assert _adm_ok >= len(_mut) - 5, (
+            f'管理员凭据只有 {_adm_ok}/{len(_mut)} 个端点没被 403 拦住——'
+            f'鉴权可能退化成了「谁都拒绝」')
+    finally:
+        _restore()
+finally:
+    for _k2, _v in _s.items():
+        if _v is None:
+            _os.environ.pop(_k2, None)
+        else:
+            _os.environ[_k2] = _v
+""",
+    ),
+    Gate(
         id='diagnose-live-actually-tries',
         desc='diagnose --live 必须真的用配置的端口去连，并如实区分「没请求」与「请求了没成功」',
         on_fail='block',
