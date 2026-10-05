@@ -196,6 +196,23 @@ All notable changes to NetMind are documented here. Format: [Keep a Changelog](h
 - `backend/build` 构建产物出库
 
 ### Fixed
+- **门禁审计第三轮：风险最高的三条「数据是真的」类门禁，逐条注入验证——全部是实的**。
+  这几条声称的是最贵的性质，所以先审它们：
+
+  | 门禁 | 注入的回归 | 结果 |
+  |---|---|---|
+  | `collection-not-guessed` | 兜底分支改回 `eos`（未知型号当 Arista 下命令） | ✓ 抓到 |
+  | `routing-data-is-real` | 删掉路由 fixture 里所有真实路由行 | ✓ 抓到 |
+  | `data-durability-drill` | `restore_from` 空转却报「已恢复」 | ✓ 抓到 |
+  | `data-durability-drill` | `save()` 改成非原子直接覆写 | ✓ 抓到 |
+
+  第二轮那三条「看似严实则松」（只查静态证据、不碰消费它的代码）在这几条上
+  没有重演——说明失灵的是**具体那几条**，不是整个门禁体系。
+
+  过程中有一次 `data-durability-drill` 在干净代码上失败，查下来是**上一轮的
+  注入残留没还原干净**（用 `cp` 从临时备份还原，备份本身已被污染）。
+  是门禁把它抓出来的——这正好是它该做的事。
+
 - **门禁审计第二轮：审过的门禁里又抓到三条，另确认六条是实的**。
   做法不变——给门禁注入它声称要防的那个回归，看会不会红。
 
