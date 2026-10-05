@@ -4,7 +4,7 @@
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 35,
   "phase": "plan",
-  "updated": "2026-10-05T02:20:18+08:00",
+  "updated": "2026-10-05T20:44:15+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -495,10 +495,10 @@
     }
   ],
   "current_round": {
-    "id": "rich-html-renderer",
-    "title": "rich.html 把每个空行渲染成空标题 —— 看起来像报告缺内容",
-    "why": "继续查报告族剩余出口（上一轮修完 PDF 与编号空档后）。",
-    "deliverable": "report_renderer.html 第一版是一行三元表达式：`<p>…</p>` if line and not line.startswith('#') else `<h2>…</h2>`。**空行也落进 else 分支**——markdown 每节之间都有空行，于是每个空行各变成一个空的 `<h2></h2>`，页面看起来像报告缺内容；同时 `#` 与 `##` 全被拍平成 `<h2>`，标题层级丢失。现按行首 `#` 个数决定级别、空行跳过，补 `lang=\"zh-CN\"`。补 4 个用例（无空节点、保留层级、尖括号转义、声明语言与字符集）+ 门禁 rich-html-has-no-empty-headings，两个反例均已证伪（空行不再跳过 → 抓到；层级拍平 → 抓到）。顺带确认普通 `.html` 端点是刻意的原始 markdown 视图（`<pre>` 包），不是缺陷，已在诚实表写明免得下次又去「修」它。"
+    "id": "readonly-surface",
+    "title": "只读凭据：后端全站枚举 + 前端从 1/41 拦到 41/41",
+    "why": "上一轮验了后端执行面，但诚实表还有一句面向用户的主张从没验过：「面板提前告知，而不是让只读用户点进去撞 403」。",
+    "deliverable": "**后端**：全站枚举 OpenAPI 里每一个 post/put/patch/delete（70 个），断言只读凭据一律 403。实测全部符合——但当时**没有任何东西在保证它继续符合**。反例证伪：把 POST 加进安全方法集 → 一次枚举出 26 个「本该拦住却返回 200」的端点。同时钉住反面：管理员凭据必须仍能通过。**前端（诚实表那句主张的实际状态）**：41 个写操作里只有 1 个有按钮级守卫，横幅弹了但其余 40 个照点不误——**承诺没兑现**。把闸门放进 client.request()，覆盖率 1/41 → 41/41，且新增写操作自动被覆盖。补 5 个用例。过程中修掉一个**看着接上了实际没生效**的错：applyAuthMode 与 React 的 setAuthMode 撞名，导入被本地 state setter 遮蔽，client 模块拿不到 authMode。改名后才真的通。门禁 readonly-ui-blocks-every-write 的三类反例均已证伪：从 request() 拿掉闸门 / 闸门条件永假 / WRITE_METHODS 清空。**如实记一笔无效证伪**：第一次注入时我把 Python 的 `True` 写进了 JS 文件，node 加载失败、门禁报「探针跑不起来」——那测的是探针能不能跑，不是闸门有没有效，不能算证伪。换成合法 JS 后重做才成立。"
   },
   "backlog": [
     {
@@ -1801,6 +1801,14 @@
       "root_cause": "一次全量门禁跑出 36/37，但当时只截了输出尾部，没抓到是哪条失败。随后逐条单跑全过、连续两次全量跑都是 37/37。**没有复现，就没有定位，也就没有修复。** 不把它写成「已解决」——那等于把一个没查清的现象记成结论。",
       "fix": "待查。若再出现，需捕获完整门禁输出（不要只 grep 尾部）定位到具体 id。候选：tests-green（真跑 pytest，最容易受外部状态影响）。",
       "at": "2026-10-03T23:25:00+08:00"
+    },
+    {
+      "cycle": 36,
+      "gate": "readonly-cannot-write-anything / readonly-ui-blocks-every-write",
+      "on_fail": "block",
+      "root_cause": "只读凭据此前只被手工试过几个端点，后端全站枚举没做过；前端更糟——诚实表声称「面板提前告知，而不是让只读用户点进去撞 403」，而全站 41 个写操作里**只有 1 个**有按钮级守卫，横幅弹了但其余 40 个照点不误、照样吃服务端 403。**承诺没兑现。**",
+      "fix": "① 后端：门禁 readonly-cannot-write-anything 枚举 OpenAPI 里每一个 post/put/patch/delete（70 个），全部要求只读凭据返回 403；并钉住反面（管理员必须仍能通过），否则「全都拦住」也能让门禁变绿。② 前端：闸门放进 client.request()——「只读身份不许写」是一条规则，不是某个按钮的属性。41 处各写一遍守卫必然会漏，新增操作时同样会漏。覆盖率 1/41 → 41/41。③ 修命名撞车：applyAuthMode 与 React 的 setAuthMode 撞名，本地 state setter 把导入遮蔽了，client 模块拿不到 authMode，**闸门看着接上了、实际从不生效**。改名后才真的通。",
+      "at": "2026-10-05T20:30:00+08:00"
     }
   ],
   "gates_total": 37,
@@ -1811,7 +1819,7 @@
     "deliverable": "",
     "planned_at": "2026-10-03T23:19:18+08:00"
   },
-  "based_on": "68f4676",
+  "based_on": "a2c8b51",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
