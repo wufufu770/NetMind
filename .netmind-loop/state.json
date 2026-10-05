@@ -3,8 +3,8 @@
   "project": "netmind",
   "protocol": ".netmind-loop/protocol.md",
   "cycle": 36,
-  "phase": "plan",
-  "updated": "2026-10-06T00:48:13+08:00",
+  "phase": "build",
+  "updated": "2026-10-06T01:18:01+08:00",
   "origin": {
     "note": "本文件是循环的状态真相源。protocol.md 讲设计，本文件讲现状；冲突以本文件为准。",
     "research_inputs": [
@@ -506,7 +506,13 @@
       "status": "pass"
     }
   ],
-  "current_round": null,
+  "current_round": {
+    "id": "B1-appjsx",
+    "title": "App.jsx 1885 行解耦为 pages/components/hooks",
+    "why": "",
+    "deliverable": "",
+    "planned_at": "2026-10-06T00:48:06+08:00"
+  },
   "backlog": [
     {
       "id": "C1-auth-default-safe",
@@ -1848,9 +1854,9 @@
     "title": "App.jsx 1885 行解耦为 pages/components/hooks",
     "why": "",
     "deliverable": "",
-    "planned_at": "2026-10-06T00:48:06+08:00"
+    "planned_at": "2026-10-06T01:18:01+08:00"
   },
-  "based_on": "d7fe98c",
+  "based_on": "9ad1144",
   "_field_semantics": {
     "based_on": "本状态写下的那一刻的 HEAD。它必然是「包含本状态的 commit 的上一个」——save() 在提交前跑，自指结构上做不到。因此这个字段标识的是「本状态基于谁写下」，不是「本状态在哪个 commit 上」。别当当前 HEAD 读。",
     "updated": "本文件最后一次写盘时间（+0800）"
